@@ -22,7 +22,7 @@ test("header parser leaves replies without a header alone", () => {
 });
 
 test("private, loopback and link-local addresses are blocked", () => {
-  for (const ip of ["127.0.0.1", "10.0.0.50", "192.168.1.1", "172.20.0.2", "169.254.169.254", "100.65.164.66", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1", "0.0.0.0"]) {
+  for (const ip of ["127.0.0.1", "10.1.2.3", "192.168.1.1", "172.20.0.2", "169.254.169.254", "100.100.1.1", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1", "0.0.0.0"]) {
     assert.equal(blockedAddress(ip), true, ip);
   }
   for (const ip of ["93.184.216.34", "1.1.1.1", "2606:4700::1111"]) assert.equal(blockedAddress(ip), false, ip);

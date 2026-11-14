@@ -53,7 +53,7 @@ The landing page in `site/index.html` follows this copy.
 3. **What does it cost and what do I need?** It isn't available to the public. Invited learners need an account on SUBCULT's sign-in and a browser.
 4. **How do I complete the first task?** Create a track, open the first lesson, write your solution and press Run checks. Ask the coach when you're stuck.
 5. **What are its limits?** It isn't released. The coach is a language model and can be wrong. Lessons can contain mistakes, and a lesson that couldn't be verified says so.
-6. **Where do I get help?** Invited learners ask SUBCULT directly. There's no public tracker yet.
+6. **Where do I get help?** Invited learners ask SUBCULT directly; anyone can open an issue at https://github.com/subculture-collective/stupen/issues.
 
 ## Channel copy
 
@@ -119,7 +119,7 @@ Do not use this before a release exists.
 
 - [ ] The owner approved the Stupen pack for website and social use.
 - [ ] The site is deployed and checked at https://stupen.subcult.tv.
-- [ ] The app shows the Stupen name and look, not "Study Coach".
+- [x] The app shows the Stupen name and look, not "Study Coach".
 - [ ] Every claim maps to C1–C4; no outcome claims.
 - [ ] Captures use synthetic data; alt text and captions are written.
 - [ ] Posting has the owner's go-ahead.

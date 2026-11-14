@@ -1,8 +1,10 @@
-# Study Coach
+# Stupen
 
-A practice coach for anyone learning anything, at any level. You describe what you want to learn. The coach writes a plan sized to you, then builds hands-on lessons one at a time. Each lesson has exercises and tests that run in a sandbox. A chat coach helps as much or as little as you allow.
+![stupen. Exactly as much help as you ask for.](site/assets/og.png)
 
-Claude and ChatGPT both run through their subscription command-line tools (`claude -p` and `codex exec`), not billed API keys. This is the general version of Practice Coach (`../practice-coach`), which stays tied to one learner's vault and workspace.
+Stupen (ступень, a step; said STOO-pen) is a practice coach for anyone learning anything, at any level. You describe what you want to learn. The coach writes a plan sized to you, then builds hands-on lessons one at a time. Each lesson has exercises and tests that run in a sandbox. A chat coach helps as much or as little as you allow, on a help limit from 0, questions only, to 6, a full solution.
+
+It is not released. SUBCULT runs it on its homelab for invited learners; the site is https://stupen.subcult.tv. Claude and ChatGPT run through their subscription command-line tools (`claude -p` and `codex exec`), not billed API keys.
 
 ## What it does
 
@@ -75,6 +77,8 @@ Needs Node 24, `claude` and `codex` signed in for the server's user, `bwrap` (De
 
 `scripts/capture.ts` screenshots the main views from a running build, for visual review.
 
+The working name was Study Coach. Runtime names keep it so existing installs keep their data: the data folder `~/.local/share/study-coach`, the `study-coach-*` Docker networks, images and labels, and browser storage keys.
+
 ## Layout
 
 - `server/`
@@ -97,6 +101,16 @@ Needs Node 24, `claude` and `codex` signed in for the server's user, `bwrap` (De
   - `TrackForm.tsx`
 - `container/`: helpers mounted read-only into containers at `/opt/study` (preview inliner, page renderer, Maven proxy settings).
 - `environments/`: optional extra environment presets as JSON (same fields as the environment editor).
+- `site/`: the static site for stupen.subcult.tv; `deploy/` serves it with nginx behind Caddy.
+- `docs/marketing/`: product context and launch drafts.
 - `skills/`: guidance every model call gets.
   - `learning-coach` is written for this app.
   - `write-plainly` and the language idiom files are copies from patstack, with their licence notices.
+
+## Brand
+
+The name, mark, colours and type come from the Stupen pack in SUBCULT's Studio (`studio/brands/stupen` in `subcult-tv`). The app and site use its tokens. The fonts (Manrope, Golos Text, Martian Mono) are under the SIL Open Font License; their texts are in `site/fonts/` and `web/public/fonts/`.
+
+## Licence
+
+Stupen is free software under the GNU Affero General Public License, version 3 only (`LICENSE`). If you run a modified copy for other people over a network, offer them its source. The files under `skills/` that came from other projects keep their MIT notices. Report security problems as described in `SECURITY.md`.

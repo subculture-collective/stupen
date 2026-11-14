@@ -1,6 +1,8 @@
 {
-  "name": "study-coach",
+  "name": "stupen",
   "private": true,
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@12.18.0",
   "type": "module",
   "scripts": {
     "dev": "pnpm run --parallel \"/^dev:/\"",

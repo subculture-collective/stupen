@@ -113,7 +113,11 @@ export function App() {
     <div className="app">
       <header className="top">
         <a className="brand" href="#/">
-          Study Coach
+          <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M3 29V21H11V14H19V7H29V29Z" fill="currentColor" />
+            <rect x="19" y="4" width="10" height="3" fill="#f5c400" />
+          </svg>
+          stupen
         </a>
         {tracks && tracks.length > 0 && (
           <select

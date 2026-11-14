@@ -27,12 +27,12 @@ Every count and name on the pages comes from this repository. Change the pages w
 
 The help-limit demo on the landing page is a mock-up: its replies were written for the page and are labelled as such. `app.js` runs only the demo; the page reads fully without it.
 
-The page states that Stupen is not released and has no public source. Claims follow C-STUDY-01 to 06 in `studio/content/social/Product Claims Register.md` in `subcult-tv`.
+The page states that Stupen is not released and links the public source. Claims follow C-STUDY-01 to 06 in `studio/content/social/Product Claims Register.md` in `subcult-tv`.
 
 ## Brand
 
-The marks, the stair drawing, `assets/og.png` and the icons come from `studio/brands/stupen` in `subcult-tv` (pack built November 14, 2026; not yet approved for website use). The fonts are Manrope, Golos Text and Martian Mono from google/fonts. They are subset to Latin and Cyrillic WOFF2 and keep their OFL texts in `fonts/`.
+The marks, the stair drawing, `assets/og.png` and the icons come from `studio/brands/stupen` in `subcult-tv` (pack built and approved for website and social use on November 14, 2026). The fonts are Manrope, Golos Text and Martian Mono from google/fonts. They are subset to Latin and Cyrillic WOFF2 and keep their OFL texts in `fonts/`.
 
 Support links go to `https://subcult.tv/support`, per `studio/content/patreon/support-redesign-2026-10/site-guidelines.md`. There is one support block on the landing page, a quiet footer link, no prices or tiers, and no ask on the error page.
 
-The footer has no source-repository link because the source is not public.
+The footer and the docs link the source repository, https://github.com/subculture-collective/stupen.

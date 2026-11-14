@@ -17,7 +17,7 @@ A signed-in browser session through the public URL has not been checked.
 - **Current offer:** none. There is no public sign-up, price or download.
 - **Requirements:** an account on SUBCULT's sign-in and a modern browser.
 - **Primary action:** read how the help limit works (https://stupen.subcult.tv/#demo). Invited learners can also sign in at https://study.subcult.tv.
-- **Feedback and support destination:** https://subcult.tv/support for supporting the collective. There is no public issue tracker yet.
+- **Feedback and support destination:** https://subcult.tv/support for supporting the collective. Issues: https://github.com/subculture-collective/stupen/issues.
 
 ## Audience and positioning
 
@@ -58,15 +58,12 @@ Brand master: `studio/brands/stupen`, built November 14, 2026, pending approval.
 
 **Excluded or planned capabilities:**
 - a public release, sign-up or pricing;
-- a public source repository;
 - mobile apps;
 - teacher or classroom features;
 - progress analytics beyond the coach's notes.
 
 **Unresolved facts:**
 - whether and when Stupen opens to the public, and on what terms (owner);
-- whether the source will be published (owner);
-- the app itself still shows its working name, Study Coach, and the old teal look (product).
 
 ## Demonstration and measurement
 

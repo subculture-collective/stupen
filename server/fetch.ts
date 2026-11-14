@@ -43,7 +43,7 @@ export async function fetchPublic(raw: string, maxBytes = 8_000_000): Promise<Fe
           method: "GET",
           lookup: safeLookup,
           timeout: 20_000,
-          headers: { "user-agent": "study-coach/1.0 (learning materials fetcher)", accept: "text/html,text/plain,application/pdf,*/*;q=0.5", "accept-encoding": "identity" },
+          headers: { "user-agent": "stupen/1.0 (learning materials fetcher; +https://stupen.subcult.tv)", accept: "text/html,text/plain,application/pdf,*/*;q=0.5", "accept-encoding": "identity" },
         },
         (r) => {
           const chunks: Buffer[] = [];

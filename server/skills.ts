@@ -50,7 +50,7 @@ export function skillPrompt(purpose: Purpose, runner: string): string {
     const body = s.files.map((f, i) => (i === 0 ? read(join(s.name, f)) : `#### ${f}\n\n${read(join(s.name, f))}`)).join("\n\n");
     return `<skill name="${s.name}">\n${s.note ? `${s.note}\n\n` : ""}${body}\n</skill>`;
   });
-  return `## Skills\n\nYou are running inside the Study Coach app. You cannot read or write files or run commands; the app sends what you need with each request. Where a skill mentions files or checks, the app or the learner handles them.\n\n${parts.join("\n\n")}`;
+  return `## Skills\n\nYou are running inside the Stupen app. You cannot read or write files or run commands; the app sends what you need with each request. Where a skill mentions files or checks, the app or the learner handles them.\n\n${parts.join("\n\n")}`;
 }
 
 export const skillNames = () => SKILLS.map((s) => s.name);

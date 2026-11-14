@@ -270,6 +270,8 @@ const TYPES: Record<string, string> = {
   ".png": "image/png",
   ".json": "application/json",
   ".woff2": "font/woff2",
+  ".ico": "image/x-icon",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 async function serveStatic(path: string, res: ServerResponse) {
@@ -492,7 +494,7 @@ async function listen() {
 }
 
 void listen().then(async (where) => {
-  console.log(`study-coach on ${where}`);
+  console.log(`stupen on ${where}`);
   console.log(`  data    ${config.dataDir}`);
   console.log(`  sandbox ${(await sandboxStatus()).detail}`);
   const d = await dockerAvailable();

@@ -153,7 +153,7 @@ async function generatePlan(
   const revising = Boolean(ctx.plan.trim());
   log(`${revising ? "Revising" : "Writing"} the plan with ${provider === "claude" ? "Claude" : "ChatGPT"}${web ? ", web search on" : ""}…`);
   const system = [
-    `You design learning plans for one learner in Study Coach. The app turns each plan item into a hands-on lesson with ${runner(track.runner).label} exercises later, one at a time, so the plan sets order, scope and pacing; it does not contain the exercises.`,
+    `You design learning plans for one learner in Stupen. The app turns each plan item into a hands-on lesson with ${runner(track.runner).label} exercises later, one at a time, so the plan sets order, scope and pacing; it does not contain the exercises.`,
     track.runner === "container"
       ? `Lessons run in a container where any packages can be installed: ${layoutFor(track)} Plan with real-world libraries and tools where they help the learner's goals.`
       : `Lessons are checked automatically and offline with this layout: ${layoutFor(track)} Plan around what that allows: no third-party packages, network or services in the exercises unless the layout says so. Readings and sources can still cover the wider ecosystem.`,
@@ -235,7 +235,7 @@ export function findJob(user: string, trackId: string, opts: { provider?: Provid
       const ctx = await context(user, track);
       log(`Searching the web with ${provider === "claude" ? "Claude" : "ChatGPT"}…`);
       const system = [
-        `You find learning materials on the web for one learner in Study Coach. Search, open the promising pages, and return the ${count} best you actually found. Prefer free, current and reputable sources: official documentation, well-known tutorials, interactive exercises and respected books or courses. Match the learner's level and goals. Avoid duplicates of materials already in their library. Return only URLs you saw in search results or opened.`,
+        `You find learning materials on the web for one learner in Stupen. Search, open the promising pages, and return the ${count} best you actually found. Prefer free, current and reputable sources: official documentation, well-known tutorials, interactive exercises and respected books or courses. Match the learner's level and goals. Avoid duplicates of materials already in their library. Return only URLs you saw in search results or opened.`,
         SAFETY,
       ].join("\n\n");
       const prompt = `${ctx.text}\n\n<request>${opts.query ? clip(opts.query, 500) : "Find materials for the next lessons in the plan."}</request>`;
@@ -336,7 +336,7 @@ export function lessonJob(
       const r = runner(track.runner);
       const ctx = await context(user, track, { materialIds: (opts.materialIds ?? []).slice(0, 6) });
       const system = [
-        `You write one hands-on practice lesson for one learner in Study Coach. The learner reads the brief, edits the starter files in a plain editor (no autocomplete) and runs the checks; a coach helps in chat under a help limit.`,
+        `You write one hands-on practice lesson for one learner in Stupen. The learner reads the brief, edits the starter files in a plain editor (no autocomplete) and runs the checks; a coach helps in chat under a help limit.`,
         `Practice format: ${r.id === "container" && track.environment ? track.environment.label : r.label}. File layout: ${layoutFor(track)}`,
         r.graded === "coach"
           ? `There are no automated tests. Give the learner an answer.md (role starter) with headings or numbered questions to answer, and put a model answer in reference (same path). The coach grades against the brief, so make the brief state clearly what a passing answer contains.`
