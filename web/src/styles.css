@@ -1504,3 +1504,72 @@ textarea.mono {
     animation-duration: 3s;
   }
 }
+
+/* sign-in and account */
+.signin {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+.signin-card {
+  width: min(440px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--fill);
+  padding: 28px 26px;
+}
+.signin-card h1 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 30px;
+  margin: 18px 0 6px;
+}
+.signin-brand {
+  margin: 0;
+}
+.signin-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+.signin-form button {
+  min-height: 42px;
+}
+.signin-or {
+  text-align: center;
+  margin: 14px 0 10px;
+}
+.signin-alt {
+  display: grid;
+  gap: 8px;
+}
+.signin-alt .button, .signin-alt button {
+  justify-content: center;
+  min-height: 42px;
+}
+.signin-fine {
+  margin-top: 22px;
+}
+.account {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+  display: grid;
+  gap: 14px;
+}
+.account h1 {
+  font-family: var(--display);
+  font-weight: 800;
+  margin: 0;
+}
+.account .card p {
+  margin: 4px 0;
+}
+.plain-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 12px;
+  display: grid;
+  gap: 8px;
+}
