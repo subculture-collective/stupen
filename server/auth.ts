@@ -357,3 +357,21 @@ export async function passkeyLogin(response: any): Promise<Account> {
   if (!a) throw new HttpError(400, "This passkey's account no longer exists.");
   return usable(a);
 }
+
+// ---- administration and deletion ---------------------------------------------
+
+export function listAccounts() {
+  return (database().prepare("SELECT * FROM accounts ORDER BY created_at DESC").all() as any[]).map((r) => ({ ...row(r), lastSeen: r.last_seen as number }));
+}
+
+export function setDisabled(id: string, disabled: boolean) {
+  database().prepare("UPDATE accounts SET disabled = ? WHERE id = ?").run(disabled ? 1 : 0, id);
+  if (disabled) database().prepare("DELETE FROM sessions WHERE account_id = ?").run(id);
+}
+
+/** Removes the account and everything tied to it in the database (sessions, passkeys, sign-in methods, model connections). */
+export function deleteAccountRows(id: string) {
+  const d = database();
+  d.prepare("DELETE FROM connections WHERE owner = ?").run(id);
+  d.prepare("DELETE FROM accounts WHERE id = ?").run(id);
+}

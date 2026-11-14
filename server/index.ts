@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 import {
   type Account,
+  deleteAccountRows,
   deletePasskey,
   endOtherSessions,
   endSession,
@@ -14,6 +15,7 @@ import {
   githubEnabled,
   githubStart,
   identities,
+  listAccounts,
   listPasskeys,
   listSessions,
   passkeyLogin,
@@ -22,11 +24,13 @@ import {
   passkeyRegisterOptions,
   sendSignInLink,
   sessionAccount,
+  setDisabled,
   startSession,
   useSignInLink,
 } from "./auth.ts";
 import { clampCeiling, HeaderParser, systemPrompt, turnPrompt } from "./coach.ts";
 import { checkBaseUrl, deleteConnection, getConnection, KINDS, kindInfo, listConnections, mayUseServerLogins, providerChoices, saveConnection } from "./connections.ts";
+import { checkRate, checkStorage, forgetStorage, STORAGE_LIMIT_BYTES, storageUsed, TRACK_LIMIT } from "./limits.ts";
 import { clearPkce, openrouterCallback, openrouterStart } from "./openrouter.ts";
 import { apiChat, listModels } from "./providers/api.ts";
 import { config } from "./config.ts";
@@ -68,6 +72,7 @@ import {
   starterContent,
   updateMaterial,
   updateTrack,
+  userDir,
   userId,
   writeLessonFile,
   writeNotes,
@@ -519,6 +524,32 @@ function sendWithCookie(res: ServerResponse, setCookie: string, body: unknown) {
   send(res, 200, body);
 }
 
+const admin = (req: IncomingMessage) => {
+  const a = accountOf(req);
+  if (!a.isAdmin) throw new HttpError(403, "Admins only.");
+  return a;
+};
+
+/** Deletes an account's database rows and every file it stored. */
+async function removeAccount(id: string) {
+  const { rm } = await import("node:fs/promises");
+  deleteAccountRows(id);
+  await rm(userDir(id), { recursive: true, force: true });
+  forgetStorage(id);
+}
+
+/** Streams the account's files (tracks, lessons, materials, prompts, coach log, chats) as a .tar.gz. */
+function exportAccount(user: string, res: ServerResponse) {
+  res.writeHead(200, {
+    "content-type": "application/gzip",
+    "content-disposition": `attachment; filename="stupen-export-${new Date().toISOString().slice(0, 10)}.tar.gz"`,
+    "cache-control": "no-store",
+  });
+  const tar = spawn("tar", ["-czf", "-", "--ignore-failed-read", "-C", join(config.dataDir, "users"), user], { stdio: ["ignore", "pipe", "ignore"] });
+  tar.stdout.pipe(res);
+  res.on("close", () => tar.kill());
+}
+
 /** Sign-in endpoints; they work without a session. */
 async function authRoute(path: string, method: string, req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   if (method === "GET" && path === "/api/auth/config") {
@@ -571,6 +602,50 @@ const accountRoutes: Route[] = [
     },
   },
   { method: "DELETE", pattern: /^\/api\/account\/passkeys\/([A-Za-z0-9_-]{8,400})$/, handle: async (_u, m, req) => (deletePasskey(accountOf(req).id, m[1]!), { ok: true }) },
+  {
+    method: "GET",
+    pattern: /^\/api\/account\/usage$/,
+    handle: async (user) => ({ bytes: await storageUsed(user), limitBytes: STORAGE_LIMIT_BYTES, tracks: (await listTracks(user)).length, trackLimit: TRACK_LIMIT }),
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/api\/account$/,
+    handle: async (user, _m, req) => {
+      const a = accountOf(req);
+      const i = await body(req);
+      if (String(i.confirm ?? "").trim().toLowerCase() !== (a.email ?? a.id)) throw new HttpError(400, "Type your email address to confirm.");
+      await removeAccount(a.id);
+      return { ok: true };
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/api\/admin\/accounts$/,
+    handle: async (_u, _m, req) => {
+      admin(req);
+      return Promise.all(listAccounts().map(async (a) => ({ ...a, bytes: await storageUsed(a.id), tracks: (await listTracks(a.id).catch(() => [])).length })));
+    },
+  },
+  {
+    method: "POST",
+    pattern: /^\/api\/admin\/accounts\/([a-z0-9._-]{1,64})$/,
+    handle: async (_u, m, req) => {
+      const me = admin(req);
+      if (m[1] === me.id) throw new HttpError(400, "You cannot disable your own account.");
+      setDisabled(m[1]!, Boolean((await body(req)).disabled));
+      return { ok: true };
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/api\/admin\/accounts\/([a-z0-9._-]{1,64})$/,
+    handle: async (_u, m, req) => {
+      const me = admin(req);
+      if (m[1] === me.id) throw new HttpError(400, "Delete your own account from the Account page.");
+      await removeAccount(m[1]!);
+      return { ok: true };
+    },
+  },
   { method: "POST", pattern: /^\/api\/account\/sessions\/end-others$/, handle: async (_u, _m, req) => (endOtherSessions(accountOf(req).id, req), { ok: true }) },
 ];
 
@@ -633,6 +708,12 @@ const server = createServer(async (req, res) => {
         const rawUser = req.headers[config.userHeader];
         user = userId(Array.isArray(rawUser) ? rawUser[0] : rawUser);
       }
+      if (config.authMode === "accounts" && !accounts.get(req)?.isAdmin) {
+        checkRate(user, method, path);
+        await checkStorage(user, method);
+        if (method === "POST" && path === "/api/tracks" && (await listTracks(user)).length >= TRACK_LIMIT) throw new HttpError(400, `You have ${TRACK_LIMIT} tracks; delete one to start another.`);
+      }
+      if (config.authMode === "accounts" && method === "GET" && path === "/api/account/export") return exportAccount(user, res);
       if (path === "/api/chat" && method === "POST") return await chat(user, req, res);
       for (const r of config.authMode === "accounts" ? [...accountRoutes, ...routes] : routes) {
         if (r.method !== method) continue;

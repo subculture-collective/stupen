@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { api, type Job, load, type Me, type ProviderStatus, save, type Track, type TrackState } from "./api.ts";
 import { JobStrip } from "./Jobs.tsx";
 import { Account } from "./Account.tsx";
+import { Admin } from "./Admin.tsx";
 import { useModels } from "./ModelPicker.tsx";
 import { ModelsPage } from "./Models.tsx";
 import { Learn } from "./Learn.tsx";
@@ -18,6 +19,7 @@ export type Route =
   | { page: "prompts" }
   | { page: "account" }
   | { page: "models" }
+  | { page: "admin" }
   | { page: "track"; track: string; view: "learn" | "plan" | "materials" | "settings"; lesson?: string };
 
 export function parseRoute(hash: string): Route {
@@ -26,6 +28,7 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === "prompts") return { page: "prompts" };
   if (parts[0] === "account") return { page: "account" };
   if (parts[0] === "models") return { page: "models" };
+  if (parts[0] === "admin") return { page: "admin" };
   if (parts[0] === "t" && parts[1]) {
     const view = (["learn", "plan", "materials", "settings"] as const).find((v) => v === parts[2]) ?? "learn";
     return { page: "track", track: parts[1], view, ...(view === "learn" && parts[3] ? { lesson: parts[3] } : {}) };
@@ -172,6 +175,11 @@ export function App() {
         >
           <ThemeIcon theme={theme} />
         </button>
+        {me?.authMode === "accounts" && me.isAdmin && (
+          <a className={`top-link ${route.page === "admin" ? "on" : ""}`} href="#/admin">
+            Admin
+          </a>
+        )}
         {me?.authMode === "accounts" ? (
           <a className={`top-link ${route.page === "account" ? "on" : ""}`} href="#/account" title={me.user}>
             Account
@@ -204,6 +212,7 @@ export function App() {
         {route.page === "prompts" && <Prompts />}
         {route.page === "account" && <Account />}
         {route.page === "models" && <ModelsPage />}
+        {route.page === "admin" && <Admin />}
         {(route.page === "new" || (route.page === "home" && tracks && tracks.length === 0)) && me && (
           <TrackForm
             me={me}

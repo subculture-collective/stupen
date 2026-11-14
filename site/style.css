@@ -154,3 +154,4 @@ footer .fine { width: 100%; color: var(--night-pencil); font-size: 14px; }
   .step .nose { transition: background-color 160ms ease-out; }
 }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.docs.single { grid-template-columns: minmax(0, 1fr); max-width: 820px; }

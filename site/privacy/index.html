@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Privacy - Stupen</title>
+<meta name="description" content="What Stupen stores about you, who else sees it, and how to download or delete it.">
+<link rel="canonical" href="https://stupen.subcult.tv/privacy/">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Stupen privacy">
+<meta property="og:description" content="What Stupen stores about you, who else sees it, and how to download or delete it.">
+<meta property="og:url" content="https://stupen.subcult.tv/privacy/">
+<meta property="og:image" content="https://stupen.subcult.tv/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../assets/favicon-16.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="wrap bar">
+  <a class="brand" href="../"><img src="../assets/mark-primary.svg" alt="" width="34" height="34">stupen</a>
+  <nav class="nav" aria-label="Main">
+    <a href="../docs/">Docs</a>
+    <a href="../#status">Status</a>
+    <a href="../#support">Support</a>
+  </nav>
+</header>
+
+<div class="wrap docs single">
+  <main id="main" class="doc">
+    <p class="label">Privacy</p>
+    <h1>What Stupen keeps</h1>
+    <p>Last changed November 14, 2026. Stupen is run by SUBCULT on its own server. There are no ads, no analytics and no tracking scripts.</p>
+
+    <h2>What we store</h2>
+    <ul>
+      <li><strong>Your account:</strong> your email address, and your GitHub user name and id if you sign in with GitHub. Passkeys are stored as public keys only.</li>
+      <li><strong>Signed-in devices:</strong> for each session, when it started and was last used and your browser's user-agent string.</li>
+      <li><strong>Your learning:</strong> tracks, plans, lessons, your code and answers, check results, materials you add, your prompts, and your coach conversations.</li>
+      <li><strong>Your API keys:</strong> encrypted on the server and never shown again, not even to you. They are decrypted only to call the provider you chose.</li>
+      <li><strong>Server logs:</strong> errors and the limits counters, kept briefly for running the service.</li>
+    </ul>
+
+    <h2>Who else sees it</h2>
+    <ul>
+      <li><strong>The AI provider you connect</strong> (for example Anthropic, OpenAI, Google or OpenRouter) receives what the coach needs to answer: your message, the lesson files, your latest check output and your track's plan and notes. Their privacy terms apply to that, under your own account with them.</li>
+      <li><strong>Brevo</strong> sends sign-in emails, so it receives your email address.</li>
+      <li><strong>GitHub</strong> knows you signed in to Stupen if you use GitHub sign-in.</li>
+      <li><strong>Cloudflare</strong> carries traffic to the server.</li>
+      <li>When the coach searches the web or you add a link, the pages you fetch see a request from Stupen's server, not from you.</li>
+    </ul>
+    <p>Your code runs in an isolated machine that holds only the lesson being checked. SUBCULT's admins can see stored data when they need to run or repair the service, and do not look at it otherwise. We do not sell or share your data with anyone else.</p>
+
+    <h2>Download or delete</h2>
+    <p>On the Account page in the app, <strong>Download my data</strong> gives you everything above except your API keys, and <strong>Delete my account</strong> removes your account and all of it at once. Deletion cannot be undone.</p>
+
+    <h2>Contact</h2>
+    <p>Questions or requests: <a href="mailto:info@subcult.tv">info@subcult.tv</a>.</p>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../assets/mark-dark.svg" alt="" width="28" height="28">stupen</a>
+    <nav aria-label="Footer">
+      <a href="../docs/">Docs</a>
+      <a href="../#status">Status</a>
+      <a href="https://subcult.tv/support">Support</a>
+      <a href="https://github.com/subculture-collective/stupen">Source</a>
+      <a href="../privacy/">Privacy</a>
+      <a href="../terms/">Terms</a>
+      <a href="https://subcult.tv">subcult.tv</a>
+    </nav>
+    <p class="fine">Stupen is a SUBCULT product. Not released. Source code under the AGPL-3.0.</p>
+  </div>
+</footer>
+</body>
+</html>

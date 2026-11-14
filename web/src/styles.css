@@ -1592,3 +1592,26 @@ textarea.mono {
 .model-picker {
   max-width: 260px;
 }
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.admin-table th {
+  text-align: left;
+  font-family: var(--label);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 2px solid var(--ink);
+  padding: 6px 8px;
+}
+.admin-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 7px 8px;
+  vertical-align: top;
+}
+.tablewrap {
+  overflow-x: auto;
+}

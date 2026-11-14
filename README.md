@@ -25,6 +25,7 @@ It is not released. SUBCULT runs it on its homelab for invited learners; the sit
   - A library of buttons above the coach's message box: hint, explain the failure, review my solution, quiz me, go deeper, and more. Edit them, add your own, and use placeholders such as `{{selection}}` and `{{failing}}`.
   - Any prompt can have a trigger: opening a new lesson, failing checks, failing three times in a row, passing, or submitting a written answer. When it fires, the prompt either sends itself or is highlighted as a suggestion.
 - **Coach.** It sees the lesson files and your latest checks with every message, and stays within your help limit (0, questions only, to 6, full solution). It can search the web when you switch Web on. It keeps progress notes about you, which later lessons use.
+- **Limits and admin.** In accounts mode each non-admin account has rate limits on checks, previews, generation jobs, materials, coach messages, new tracks and key checks (`server/limits.ts`), 300 MB of storage and 40 tracks. Admins get an Admin page to disable or delete accounts. Everyone can download their data as a `.tar.gz` and delete their account from the Account page.
 - **Accounts.** With `AUTH_MODE=accounts`, people sign in with an emailed link, GitHub or a passkey, and each account gets its own tracks, prompts and coach log. Sessions are 30-day cookies that renew with use; the Account page lists passkeys and signed-in devices. Without it, a sign-in proxy such as Authelia names the user in the `Remote-User` header.
 
 ## Containers

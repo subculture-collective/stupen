@@ -159,6 +159,8 @@ export type AccountInfo = {
   sessions: { id: string; method: string; agent: string; createdAt: number; lastUsed: number; current: boolean }[];
 };
 
+export type AdminAccount = { id: string; email: string | null; name: string; isAdmin: boolean; disabled: boolean; createdAt: number; lastSeen: number; bytes: number; tracks: number };
+
 export const auth = {
   config: () => call<AuthConfig>("/api/auth/config"),
   email: (email: string) => call<{ ok: true }>("/api/auth/email", json("POST", { email })),
@@ -171,6 +173,11 @@ export const auth = {
   addPasskey: (response: unknown, name: string) => call<{ ok: true }>("/api/account/passkeys", json("POST", { response, name })),
   deletePasskey: (id: string) => call<{ ok: true }>(`/api/account/passkeys/${encodeURIComponent(id)}`, { method: "DELETE" }),
   endOtherSessions: () => call<{ ok: true }>("/api/account/sessions/end-others", { method: "POST" }),
+  usage: () => call<{ bytes: number; limitBytes: number; tracks: number; trackLimit: number }>("/api/account/usage"),
+  deleteAccount: (confirm: string) => call<{ ok: true }>("/api/account", json("DELETE", { confirm })),
+  adminAccounts: () => call<AdminAccount[]>("/api/admin/accounts"),
+  adminSetDisabled: (id: string, disabled: boolean) => call<{ ok: true }>(`/api/admin/accounts/${encodeURIComponent(id)}`, json("POST", { disabled })),
+  adminDelete: (id: string) => call<{ ok: true }>(`/api/admin/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
 const json = (method: string, body: unknown) => ({ method, body: JSON.stringify(body) });
