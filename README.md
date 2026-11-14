@@ -25,7 +25,7 @@ It is not released. SUBCULT runs it on its homelab for invited learners; the sit
   - A library of buttons above the coach's message box: hint, explain the failure, review my solution, quiz me, go deeper, and more. Edit them, add your own, and use placeholders such as `{{selection}}` and `{{failing}}`.
   - Any prompt can have a trigger: opening a new lesson, failing checks, failing three times in a row, passing, or submitting a written answer. When it fires, the prompt either sends itself or is highlighted as a suggestion.
 - **Coach.** It sees the lesson files and your latest checks with every message, and stays within your help limit (0, questions only, to 6, full solution). It can search the web when you switch Web on. It keeps progress notes about you, which later lessons use.
-- **Users.** Behind a sign-in proxy such as Authelia, each user gets their own tracks, prompts and coach log, keyed by the `Remote-User` header.
+- **Accounts.** With `AUTH_MODE=accounts`, people sign in with an emailed link, GitHub or a passkey, and each account gets its own tracks, prompts and coach log. Sessions are 30-day cookies that renew with use; the Account page lists passkeys and signed-in devices. Without it, a sign-in proxy such as Authelia names the user in the `Remote-User` header.
 
 ## Containers
 
@@ -69,7 +69,16 @@ Needs Node 24, `claude` and `codex` signed in for the server's user, `bwrap` (De
 | `SOCKET` | unset | Listen on this Unix socket instead (its folder is set to mode 700) |
 | `ALLOWED_HOSTS` | localhost only | Extra `Host` names to accept, comma-separated |
 | `EDGE_SECRET` | unset | When set, every request must carry it in `X-Edge-Secret` (the proxy adds it after sign-in) |
-| `USER_HEADER` | `remote-user` | Header with the signed-in user's name |
+| `USER_HEADER` | `remote-user` | Header with the signed-in user's name (proxy mode) |
+| `AUTH_MODE` | `proxy` | `accounts` turns on Stupen's own accounts |
+| `PUBLIC_ORIGIN` | `http://localhost:5184` | Scheme and host browsers use; passkeys and links depend on it |
+| `BASE_PATH` | empty | Serve the app under a prefix such as `/app` (set it for `pnpm build` too) |
+| `SIGNUP` | open | `closed` allows only existing accounts and `ADMIN_EMAILS` |
+| `ADMIN_EMAILS` | none | Comma-separated admin addresses |
+| `LEGACY_USERS` | none | `email=folder` pairs: a new account for that email keeps `users/<folder>` |
+| `SMTP_URL`, `MAIL_FROM` | unset, `Stupen <info@subcult.tv>` | Mail for sign-in links; `log` prints links instead (testing) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | unset | GitHub sign-in; callback `PUBLIC_ORIGIN` + `BASE_PATH` + `/auth/github/callback` |
+| `CLIENT_IP_HEADER` | unset | Header with the client address from a trusted proxy, for rate limits (e.g. `cf-connecting-ip`) |
 | `STUDY_DATA_DIR` | `~/.local/share/study-coach` | Tracks, lessons, materials, prompts, coach log |
 | `STUDY_TOOLS_DIR` | `~/.local/share/study-coach-tools` | Sandbox tool installs (pytest venv) |
 | `STUDY_SANDBOX` | `1` | `0` runs checks without bubblewrap |

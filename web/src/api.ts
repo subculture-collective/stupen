@@ -22,6 +22,8 @@ export type Environment = {
 };
 export type Me = {
   user: string;
+  authMode: "accounts" | "proxy";
+  isAdmin: boolean;
   sandbox: { sandboxed: boolean; detail: string };
   docker: { ok: boolean; detail?: string };
   runners: RunnerInfo[];
@@ -121,12 +123,49 @@ export type PromptLibrary = { prompts: Prompt[]; triggers: Record<Trigger, strin
 
 export type ProviderStatus = Record<Provider, { ok: boolean; detail: string }>;
 
+/** The path prefix the app is served under ("" or "/app"), from Vite's base. */
+export const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+/** Thrown when the session is missing or has ended; the app shows the sign-in page. */
+export class SignInRequired extends Error {}
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", "x-study-coach": "1", ...init.headers } });
+  const res = await fetch(BASE + path, { ...init, headers: { "content-type": "application/json", "x-study-coach": "1", ...init.headers } });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    dispatchEvent(new Event("stupen:signin"));
+    throw new SignInRequired(data.error ?? "Sign in first.");
+  }
   if (!res.ok) throw new Error(data.error ?? `${res.status} ${res.statusText}`);
   return data as T;
 }
+
+export type AuthConfig = { mode: "accounts" | "proxy"; email?: boolean; github?: boolean; passkeys?: boolean; signup?: boolean };
+export type AccountInfo = {
+  id: string;
+  email: string | null;
+  name: string;
+  isAdmin: boolean;
+  createdAt: number;
+  github: boolean;
+  identities: { provider: string; login: string; createdAt: number }[];
+  passkeys: { id: string; name: string; createdAt: number; lastUsed: number }[];
+  sessions: { id: string; method: string; agent: string; createdAt: number; lastUsed: number; current: boolean }[];
+};
+
+export const auth = {
+  config: () => call<AuthConfig>("/api/auth/config"),
+  email: (email: string) => call<{ ok: true }>("/api/auth/email", json("POST", { email })),
+  verify: (token: string) => call<{ ok: true }>("/api/auth/email/verify", json("POST", { token })),
+  passkeyOptions: () => call<any>("/api/auth/passkey/options", { method: "POST" }),
+  passkeyVerify: (response: unknown) => call<{ ok: true }>("/api/auth/passkey/verify", json("POST", { response })),
+  logout: () => call<{ ok: true }>("/api/auth/logout", { method: "POST" }),
+  account: () => call<AccountInfo>("/api/account"),
+  addPasskeyOptions: () => call<any>("/api/account/passkeys/options", { method: "POST" }),
+  addPasskey: (response: unknown, name: string) => call<{ ok: true }>("/api/account/passkeys", json("POST", { response, name })),
+  deletePasskey: (id: string) => call<{ ok: true }>(`/api/account/passkeys/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  endOtherSessions: () => call<{ ok: true }>("/api/account/sessions/end-others", { method: "POST" }),
+};
 
 const json = (method: string, body: unknown) => ({ method, body: JSON.stringify(body) });
 const q = encodeURIComponent;
@@ -180,7 +219,7 @@ export type ChatStreamEvent =
 export type ChatBody = { track: string; lesson?: string; provider: Provider; message: string; ceiling: number; threadId?: string; web: boolean; promptId?: string; material?: string };
 
 export async function* chatStream(body: ChatBody, signal: AbortSignal): AsyncGenerator<ChatStreamEvent> {
-  const res = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json", "x-study-coach": "1" }, body: JSON.stringify(body), signal });
+  const res = await fetch(`${BASE}/api/chat`, { method: "POST", headers: { "content-type": "application/json", "x-study-coach": "1" }, body: JSON.stringify(body), signal });
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? `${res.status} ${res.statusText}`);

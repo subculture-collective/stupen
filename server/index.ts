@@ -5,6 +5,26 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, normalize } from "node:path";
 import { promisify } from "node:util";
 
+import {
+  type Account,
+  deletePasskey,
+  endOtherSessions,
+  endSession,
+  githubCallback,
+  githubEnabled,
+  githubStart,
+  identities,
+  listPasskeys,
+  listSessions,
+  passkeyLogin,
+  passkeyLoginOptions,
+  passkeyRegister,
+  passkeyRegisterOptions,
+  sendSignInLink,
+  sessionAccount,
+  startSession,
+  useSignInLink,
+} from "./auth.ts";
 import { clampCeiling, HeaderParser, systemPrompt, turnPrompt } from "./coach.ts";
 import { config } from "./config.ts";
 import { containerChecks, containerPreview, dockerAvailable, ensureInfra } from "./containers.ts";
@@ -298,10 +318,13 @@ const routes: Route[] = [
   {
     method: "GET",
     pattern: /^\/api\/me$/,
-    handle: async (user) => {
+    handle: async (user, _m, req) => {
       const [sandbox, available, dockerOk] = await Promise.all([sandboxStatus(), runnerAvailability(), dockerAvailable()]);
+      const a = accounts.get(req);
       return {
-        user,
+        user: a ? (a.email ?? a.name ?? a.id) : user,
+        authMode: config.authMode,
+        isAdmin: a ? a.isAdmin : true,
         sandbox,
         docker: dockerOk,
         runners: RUNNERS.map((r) => ({ id: r.id, label: r.label, syntax: r.syntax, layout: r.layout, graded: r.graded ?? null, ...(r.id === "container" ? dockerOk : available[r.id]) })),
@@ -449,6 +472,79 @@ const routes: Route[] = [
   { method: "POST", pattern: /^\/api\/prompts\/reset$/, handle: async (user) => ({ prompts: await resetPrompts(user) }) },
 ];
 
+/** The signed-in account for this request (accounts mode only). */
+const accounts = new WeakMap<IncomingMessage, Account>();
+const accountOf = (req: IncomingMessage) => {
+  const a = accounts.get(req);
+  if (!a) throw new HttpError(401, "Sign in first.");
+  return a;
+};
+
+function redirect(res: ServerResponse, location: string, setCookie?: string | string[]) {
+  res.writeHead(302, { location, "cache-control": "no-store", ...(setCookie ? { "set-cookie": setCookie } : {}) });
+  res.end();
+}
+
+function sendWithCookie(res: ServerResponse, setCookie: string, body: unknown) {
+  res.setHeader("set-cookie", setCookie);
+  send(res, 200, body);
+}
+
+/** Sign-in endpoints; they work without a session. */
+async function authRoute(path: string, method: string, req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  if (method === "GET" && path === "/api/auth/config") {
+    send(res, 200, { mode: config.authMode, email: true, github: githubEnabled(), passkeys: true, signup: config.openSignup });
+    return true;
+  }
+  if (method !== "POST") return false;
+  if (path === "/api/auth/email") {
+    await sendSignInLink((await body(req)).email, req);
+    send(res, 200, { ok: true });
+    return true;
+  }
+  if (path === "/api/auth/email/verify") {
+    const a = useSignInLink((await body(req)).token, req);
+    sendWithCookie(res, startSession(a.id, "email", req), { ok: true });
+    return true;
+  }
+  if (path === "/api/auth/passkey/options") {
+    send(res, 200, await passkeyLoginOptions(req));
+    return true;
+  }
+  if (path === "/api/auth/passkey/verify") {
+    const a = await passkeyLogin((await body(req)).response);
+    sendWithCookie(res, startSession(a.id, "passkey", req), { ok: true });
+    return true;
+  }
+  if (path === "/api/auth/logout") {
+    sendWithCookie(res, endSession(req), { ok: true });
+    return true;
+  }
+  return false;
+}
+
+const accountRoutes: Route[] = [
+  {
+    method: "GET",
+    pattern: /^\/api\/account$/,
+    handle: async (_u, _m, req) => {
+      const a = accountOf(req);
+      return { id: a.id, email: a.email, name: a.name, isAdmin: a.isAdmin, createdAt: a.createdAt, identities: identities(a.id), passkeys: listPasskeys(a.id), sessions: listSessions(a.id, req), github: githubEnabled() };
+    },
+  },
+  { method: "POST", pattern: /^\/api\/account\/passkeys\/options$/, handle: async (_u, _m, req) => passkeyRegisterOptions(accountOf(req)) },
+  {
+    method: "POST",
+    pattern: /^\/api\/account\/passkeys$/,
+    handle: async (_u, _m, req) => {
+      const i = await body(req);
+      return passkeyRegister(accountOf(req), i.response, i.name);
+    },
+  },
+  { method: "DELETE", pattern: /^\/api\/account\/passkeys\/([A-Za-z0-9_-]{8,400})$/, handle: async (_u, m, req) => (deletePasskey(accountOf(req).id, m[1]!), { ok: true }) },
+  { method: "POST", pattern: /^\/api\/account\/sessions\/end-others$/, handle: async (_u, _m, req) => (endOtherSessions(accountOf(req).id, req), { ok: true }) },
+];
+
 const server = createServer(async (req, res) => {
   try {
     const host = (req.headers.host ?? "").replace(/:\d+$/, "");
@@ -456,15 +552,45 @@ const server = createServer(async (req, res) => {
     if (config.edgeSecret && !sameSecret(req.headers[config.edgeSecretHeader], config.edgeSecret)) throw new HttpError(403, "requests must come through the sign-in proxy");
     const url = new URL(req.url ?? "/", "http://localhost");
     const method = req.method ?? "GET";
-    const path = url.pathname;
+    let path = url.pathname;
+    if (config.basePath) {
+      if (path === config.basePath) return redirect(res, `${config.basePath}/`);
+      if (!path.startsWith(`${config.basePath}/`)) throw new HttpError(404, "not found");
+      path = path.slice(config.basePath.length);
+    }
+    if (config.authMode === "accounts" && method === "GET" && path === "/auth/github") {
+      const { location, setCookie } = githubStart(req);
+      return redirect(res, location, setCookie);
+    }
+    if (config.authMode === "accounts" && method === "GET" && path === "/auth/github/callback") {
+      try {
+        const a = await githubCallback(req, url);
+        return redirect(res, `${config.basePath}/`, [startSession(a.id, "github", req), "stupen_gh_state=; Path=/; Max-Age=0"]);
+      } catch (e) {
+        return redirect(res, `${config.basePath}/#/signin?error=${encodeURIComponent(e instanceof Error ? e.message : "GitHub sign-in failed")}`);
+      }
+    }
     // A custom header forces a CORS preflight, which this server never answers.
     if (method !== "GET" && req.headers["x-study-coach"] !== "1") throw new HttpError(403, "missing app header");
 
     if (path.startsWith("/api/")) {
-      const rawUser = req.headers[config.userHeader];
-      const user = userId(Array.isArray(rawUser) ? rawUser[0] : rawUser);
+      let user: string;
+      if (config.authMode === "accounts") {
+        if (path.startsWith("/api/auth/")) {
+          if (await authRoute(path, method, req, res)) return;
+          throw new HttpError(404, "not found");
+        }
+        const a = sessionAccount(req);
+        if (!a) throw new HttpError(401, "Sign in first.");
+        accounts.set(req, a);
+        user = a.id;
+      } else {
+        if (path === "/api/auth/config" && method === "GET") return send(res, 200, { mode: "proxy" });
+        const rawUser = req.headers[config.userHeader];
+        user = userId(Array.isArray(rawUser) ? rawUser[0] : rawUser);
+      }
       if (path === "/api/chat" && method === "POST") return await chat(user, req, res);
-      for (const r of routes) {
+      for (const r of config.authMode === "accounts" ? [...accountRoutes, ...routes] : routes) {
         if (r.method !== method) continue;
         const m = r.pattern.exec(path);
         if (m) return send(res, 200, await r.handle(user, m, req, res, url));

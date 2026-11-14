@@ -5,6 +5,7 @@ const apiPort = Number(process.env.PORT ?? 5183);
 
 export default defineConfig({
   root: "web",
+  base: process.env.BASE_PATH ? `${process.env.BASE_PATH.replace(/\/+$/, "")}/` : "/",
   plugins: [react()],
   build: { outDir: "../dist", emptyOutDir: true },
   server: {
