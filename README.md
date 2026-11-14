@@ -76,6 +76,7 @@ Needs Node 24, `claude` and `codex` signed in for the server's user, `bwrap` (De
 | `BASE_PATH` | empty | Serve the app under a prefix such as `/app` (set it for `pnpm build` too) |
 | `SIGNUP` | open | `closed` allows only existing accounts and `ADMIN_EMAILS` |
 | `ADMIN_EMAILS` | none | Comma-separated admin addresses |
+| `SUBSCRIPTION_ACCOUNTS` | unset | Restrict the server's Claude and ChatGPT subscriptions to these exact account IDs, comma-separated. An empty value disables access. When unset, admins have access in accounts mode and all authenticated proxy users have access in proxy mode |
 | `LEGACY_USERS` | none | `email=folder` pairs: a new account for that email keeps `users/<folder>` |
 | `SMTP_URL`, `MAIL_FROM` | unset, `Stupen <info@subcult.tv>` | Mail for sign-in links; `log` prints links instead (testing) |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | unset | GitHub sign-in; callback `PUBLIC_ORIGIN` + `BASE_PATH` + `/auth/github/callback` |

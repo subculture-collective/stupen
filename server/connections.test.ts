@@ -56,3 +56,28 @@ test("server logins are for admins only in accounts mode", () => {
     config.authMode = "proxy";
   }
 });
+
+test("an explicit subscription allowlist overrides admin access and rejects disabled accounts", () => {
+  const originalMode = config.authMode;
+  const originalAccounts = config.subscriptionAccounts;
+  config.authMode = "accounts";
+  config.subscriptionAccounts = new Set(["owner", "disabled-owner"]);
+  try {
+    database().prepare("INSERT INTO accounts (id, created_at, is_admin, disabled) VALUES ('owner', 0, 0, 0), ('other-admin', 0, 1, 0), ('disabled-owner', 0, 1, 1)").run();
+    assert.equal(mayUseServerLogins("owner"), true, "the owner does not need admin privileges");
+    assert.equal(mayUseServerLogins("other-admin"), false, "unlisted admins cannot spend the subscriptions");
+    assert.equal(mayUseServerLogins("disabled-owner"), false);
+    assert.equal(mayUseServerLogins("missing"), false);
+    assert.ok(providerChoices("owner").some((c) => c.id === "codex"));
+    assert.deepEqual(providerChoices("other-admin"), []);
+    config.subscriptionAccounts = new Set();
+    assert.equal(mayUseServerLogins("owner"), false, "an explicitly empty allowlist disables subscription access");
+    config.authMode = "proxy";
+    config.subscriptionAccounts = new Set(["owner"]);
+    assert.equal(mayUseServerLogins("owner"), true);
+    assert.equal(mayUseServerLogins("other-admin"), false);
+  } finally {
+    config.authMode = originalMode;
+    config.subscriptionAccounts = originalAccounts;
+  }
+});

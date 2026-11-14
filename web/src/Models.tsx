@@ -35,8 +35,8 @@ export function ModelsPage() {
       ))}
       {server.length > 0 && (
         <div className="card">
-          <h2>Server logins</h2>
-          <p className="muted small">As an admin you can also use the server's Claude and ChatGPT subscriptions: {server.map((s) => s.label).join(", ")}.</p>
+          <h2>Subscriptions</h2>
+          <p className="muted small">Your account can use the subscriptions connected on this server: {server.map((s) => s.label).join(", ")}. No API key is needed. Choose one in the coach or a track's model settings.</p>
         </div>
       )}
 
