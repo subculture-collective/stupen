@@ -18,6 +18,14 @@
     "node": ">=24"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.104",
+    "@ai-sdk/deepseek": "^3.0.86",
+    "@ai-sdk/google": "^4.0.120",
+    "@ai-sdk/groq": "^4.0.83",
+    "@ai-sdk/mistral": "^4.0.86",
+    "@ai-sdk/openai": "^4.0.117",
+    "@ai-sdk/openai-compatible": "^3.0.92",
+    "@ai-sdk/xai": "^5.0.45",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",
@@ -35,13 +43,16 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
     "@lezer/highlight": "^1.2.5",
+    "@openrouter/ai-sdk-provider": "^3.1.0",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.1.0",
+    "ai": "^7.0.172",
     "nodemailer": "^10.5.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "undici": "^8.12.4"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

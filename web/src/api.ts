@@ -1,4 +1,10 @@
-export type Provider = "claude" | "codex";
+/** "claude" or "codex" (the server's subscription logins, admins only) or a connection id. */
+export type Provider = string;
+
+export type ModelChoice = { id: string; label: string; model: string; kind: string; web: boolean };
+export type ProviderKind = { id: string; label: string; keyUrl: string; model: string; web: boolean; baseUrl?: boolean; oauth?: boolean };
+export type Connection = { id: string; kind: string; label: string; model: string; baseUrl: string; web: boolean; createdAt: number; keyHint: string };
+export type Models = { choices: ModelChoice[]; kinds: ProviderKind[]; connections: Connection[] };
 export type Level = "new" | "beginner" | "intermediate" | "advanced" | "expert";
 export type Trigger = "manual" | "lesson-start" | "check-fail" | "stuck" | "check-pass" | "grade";
 
@@ -121,7 +127,7 @@ export type LessonState = { meta: LessonMeta; files: LessonFile[]; help: Help };
 export type Prompt = { id: string; label: string; text: string; trigger: Trigger; mode: "auto" | "suggest"; builtIn: boolean };
 export type PromptLibrary = { prompts: Prompt[]; triggers: Record<Trigger, string>; placeholders: Record<string, string> };
 
-export type ProviderStatus = Record<Provider, { ok: boolean; detail: string }>;
+export type ProviderStatus = Partial<Record<"claude" | "codex", { ok: boolean; detail: string }>>;
 
 /** The path prefix the app is served under ("" or "/app"), from Vite's base. */
 export const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -175,6 +181,10 @@ const l = (track: string, lesson: string) => `${t(track)}/lessons/${q(lesson)}`;
 export const api = {
   me: () => call<Me>("/api/me"),
   providers: () => call<ProviderStatus>("/api/providers"),
+  models: () => call<Models>("/api/models"),
+  saveConnection: (c: { id?: string; kind?: string; label?: string; model?: string; baseUrl?: string; key?: string }) => call<Connection>("/api/connections", json("POST", c)),
+  deleteConnection: (id: string) => call<{ ok: true }>(`/api/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  listModels: (q: { id?: string; kind?: string; key?: string; baseUrl?: string }) => call<{ models: string[] }>("/api/connections/models", json("POST", q)),
   tracks: () => call<Track[]>("/api/tracks"),
   createTrack: (fields: Partial<Track>) => call<Track>("/api/tracks", json("POST", fields)),
   track: (id: string) => call<TrackState>(t(id)),

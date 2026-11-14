@@ -8,7 +8,7 @@ import { HttpError } from "./util.ts";
 
 export { blockedAddress };
 
-const safeLookup: typeof dnsLookup = ((host: string, opts: any, cb: any) => {
+export const safeLookup: typeof dnsLookup = ((host: string, opts: any, cb: any) => {
   dnsLookup(host, { ...opts, all: true }, (err, addrs: any) => {
     if (err) return cb(err);
     const list = (Array.isArray(addrs) ? addrs : [{ address: addrs, family: opts?.family ?? 4 }]) as { address: string; family: number }[];

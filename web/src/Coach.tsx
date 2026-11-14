@@ -4,7 +4,7 @@ import { api, type Help, type LessonMeta, load, type Material, type Prompt, type
 import { chatKey, type Message, chatStore, useChats } from "./chatStore.ts";
 import { LADDER } from "./ladder.ts";
 import { Md } from "./Md.tsx";
-import { ProviderToggle } from "./ProviderToggle.tsx";
+import { choiceLabel, ModelPicker, useModels } from "./ModelPicker.tsx";
 import { fill } from "./text.ts";
 
 /** Values a prompt template can use; the workbench keeps them current. */
@@ -47,6 +47,8 @@ export function Coach(props: {
   const ceilingKey = `study-coach:ceiling:${track.id}:${lesson?.id ?? "-"}`;
   const [ceiling, setCeiling] = useState<number>(() => load(ceilingKey, track.defaultCeiling));
   const [web, setWeb] = useState<boolean>(() => load(`study-coach:web:${track.id}`, false));
+  const coachModels = useModels();
+  const canSearch = coachModels?.choices.find((c) => c.id === provider)?.web ?? true;
   const [auto, setAuto] = useState<boolean>(() => load("study-coach:auto-prompts", true));
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [suggested, setSuggested] = useState<string[]>([]);
@@ -77,7 +79,7 @@ export function Coach(props: {
     setAttach("");
     const r = await chatStore.send(
       key,
-      { track: track.id, ...(lesson ? { lesson: lesson.id } : {}), provider, message, ceiling, web, ...(prompt ? { promptId: prompt.id } : {}), ...(material ? { material } : {}) },
+      { track: track.id, ...(lesson ? { lesson: lesson.id } : {}), provider, message, ceiling, web: web && canSearch, ...(prompt ? { promptId: prompt.id } : {}), ...(material ? { material } : {}) },
       { ...(prompt ? { prompt: { id: prompt.id, label: prompt.label, auto: isAuto } } : {}), beforeSend: props.beforeSend },
     );
     if (r.help !== undefined) props.onHelp?.(r.help);
@@ -132,7 +134,7 @@ export function Coach(props: {
     <section className="coach" aria-label="Coach">
       <div className="coach-head">
         <h2>Coach</h2>
-        <ProviderToggle
+        <ModelPicker
           value={provider}
           disabled={busy}
           label="Coach model"
@@ -157,10 +159,11 @@ export function Coach(props: {
             ))}
           </select>
         </label>
-        <label className="toggle small" title="The coach may search and read web pages for its replies">
+        <label className="toggle small" title={canSearch ? "The coach may search and read web pages for its replies" : "This model has no web search in Stupen"}>
           <input
             type="checkbox"
-            checked={web}
+            disabled={!canSearch}
+            checked={web && canSearch}
             onChange={(e) => {
               setWeb(e.target.checked);
               save(`study-coach:web:${track.id}`, e.target.checked);
@@ -312,6 +315,7 @@ export function Coach(props: {
 
 function MessageView(props: { m: Message; retry?: (() => void) | undefined }) {
   const { m } = props;
+  const models = useModels();
   if (m.role === "note") return <p className="note small muted">{m.text}</p>;
   if (m.role === "learner")
     return (
@@ -329,7 +333,7 @@ function MessageView(props: { m: Message; retry?: (() => void) | undefined }) {
       )}
       {m.text && <Md>{m.text}</Md>}
       <div className="msg-meta small muted">
-        {m.provider === "codex" ? "ChatGPT" : "Claude"}
+        {choiceLabel(models?.choices, m.provider)}
         {typeof m.assist === "number" && <span className="pill">help {m.assist}</span>}
         {m.verdict === "pass" && <span className="pill pill-ok">passed</span>}
         {m.verdict === "revise" && <span className="pill pill-warn">revise</span>}

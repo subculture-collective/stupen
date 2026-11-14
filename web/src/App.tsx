@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { api, type Job, load, type Me, type ProviderStatus, save, type Track, type TrackState } from "./api.ts";
 import { JobStrip } from "./Jobs.tsx";
 import { Account } from "./Account.tsx";
+import { useModels } from "./ModelPicker.tsx";
+import { ModelsPage } from "./Models.tsx";
 import { Learn } from "./Learn.tsx";
 import { Materials } from "./Materials.tsx";
 import { Plan } from "./Plan.tsx";
@@ -15,6 +17,7 @@ export type Route =
   | { page: "new" }
   | { page: "prompts" }
   | { page: "account" }
+  | { page: "models" }
   | { page: "track"; track: string; view: "learn" | "plan" | "materials" | "settings"; lesson?: string };
 
 export function parseRoute(hash: string): Route {
@@ -22,6 +25,7 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === "new") return { page: "new" };
   if (parts[0] === "prompts") return { page: "prompts" };
   if (parts[0] === "account") return { page: "account" };
+  if (parts[0] === "models") return { page: "models" };
   if (parts[0] === "t" && parts[1]) {
     const view = (["learn", "plan", "materials", "settings"] as const).find((v) => v === parts[2]) ?? "learn";
     return { page: "track", track: parts[1], view, ...(view === "learn" && parts[3] ? { lesson: parts[3] } : {}) };
@@ -61,6 +65,7 @@ export function App() {
   const [tracks, setTracks] = useState<Track[]>();
   const [state, setState] = useState<TrackState>();
   const [error, setError] = useState<string>();
+  const models = useModels();
   const [theme, setTheme] = useState<Theme>(() => load<Theme>("study-coach:theme", "system"));
   const trackId = route.page === "track" ? route.track : undefined;
 
@@ -148,6 +153,9 @@ export function App() {
           </nav>
         )}
         <span className="spacer" />
+        <a className={`top-link ${route.page === "models" ? "on" : ""}`} href="#/models">
+          Models
+        </a>
         <a className={`top-link ${route.page === "prompts" ? "on" : ""}`} href="#/prompts">
           Prompts
         </a>
@@ -172,10 +180,15 @@ export function App() {
           me && me.user !== "local" && <span className="muted small user">{me.user}</span>
         )}
       </header>
-      {providers && (!providers.claude.ok || !providers.codex.ok) && (
+      {providers?.claude && providers.codex && (!providers.claude.ok || !providers.codex.ok) && (
         <p className="banner small">
           {!providers.claude.ok && <span>Claude is not signed in on the server ({providers.claude.detail}). </span>}
           {!providers.codex.ok && <span>ChatGPT is not signed in on the server ({providers.codex.detail}).</span>}
+        </p>
+      )}
+      {models && models.choices.length === 0 && route.page !== "models" && (
+        <p className="banner small">
+          Stupen uses your own AI account. <a href="#/models">Connect a model</a> to write plans and lessons and to chat with the coach.
         </p>
       )}
       {error && (
@@ -190,6 +203,7 @@ export function App() {
       <main className="main">
         {route.page === "prompts" && <Prompts />}
         {route.page === "account" && <Account />}
+        {route.page === "models" && <ModelsPage />}
         {(route.page === "new" || (route.page === "home" && tracks && tracks.length === 0)) && me && (
           <TrackForm
             me={me}

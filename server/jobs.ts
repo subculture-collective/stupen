@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 
 import { trackSummary } from "./coach.ts";
 import { addUrl } from "./materials.ts";
+import { providerLabel } from "./connections.ts";
 import { arr, enm, obj, type Provider, str, structured } from "./providers/structured.ts";
 import { config } from "./config.ts";
 import { containerChecks, dockerAvailable } from "./containers.ts";
@@ -151,7 +152,7 @@ async function generatePlan(
   const { provider, web, materialIds } = opts;
   const ctx = await context(user, track, { materialIds });
   const revising = Boolean(ctx.plan.trim());
-  log(`${revising ? "Revising" : "Writing"} the plan with ${provider === "claude" ? "Claude" : "ChatGPT"}${web ? ", web search on" : ""}…`);
+  log(`${revising ? "Revising" : "Writing"} the plan with ${providerLabel(user, provider)}${web ? ", web search on" : ""}…`);
   const system = [
     `You design learning plans for one learner in Stupen. The app turns each plan item into a hands-on lesson with ${runner(track.runner).label} exercises later, one at a time, so the plan sets order, scope and pacing; it does not contain the exercises.`,
     track.runner === "container"
@@ -181,7 +182,7 @@ async function generatePlan(
         ? "Review the plan against the learner's progress and improve it."
         : "Write the first plan.";
   const prompt = `${ctx.text}\n\n<instruction>\n${clip(instruction, 4000)}\n</instruction>`;
-  const out = await structured<PlanOut>({ provider, system, prompt, schema: PLAN_SCHEMA, web, signal, onActivity: log });
+  const out = await structured<PlanOut>({ user, provider, system, prompt, schema: PLAN_SCHEMA, web, signal, onActivity: log });
   if (!out.plan?.trim() || !Array.isArray(out.lessons) || !out.lessons.length) throw new Error("the model returned an empty plan");
   const seen = new Set<string>();
   const lessons = out.lessons.slice(0, 40).map((l) => {
@@ -233,13 +234,13 @@ export function findJob(user: string, trackId: string, opts: { provider?: Provid
     const count = Math.min(10, Math.max(1, Math.trunc(opts.count ?? 5)));
     return start(user, trackId, "find", opts.query ? `Find materials: ${opts.query.slice(0, 60)}` : "Find materials", async (log, signal) => {
       const ctx = await context(user, track);
-      log(`Searching the web with ${provider === "claude" ? "Claude" : "ChatGPT"}…`);
+      log(`Searching the web with ${providerLabel(user, provider)}…`);
       const system = [
         `You find learning materials on the web for one learner in Stupen. Search, open the promising pages, and return the ${count} best you actually found. Prefer free, current and reputable sources: official documentation, well-known tutorials, interactive exercises and respected books or courses. Match the learner's level and goals. Avoid duplicates of materials already in their library. Return only URLs you saw in search results or opened.`,
         SAFETY,
       ].join("\n\n");
       const prompt = `${ctx.text}\n\n<request>${opts.query ? clip(opts.query, 500) : "Find materials for the next lessons in the plan."}</request>`;
-      const out = await structured<{ materials: { title: string; url: string; kind: string; note: string }[] }>({ provider, system, prompt, schema: FIND_SCHEMA, web: true, signal, onActivity: log });
+      const out = await structured<{ materials: { title: string; url: string; kind: string; note: string }[] }>({ user, provider, system, prompt, schema: FIND_SCHEMA, web: true, signal, onActivity: log });
       const have = new Set(ctx.materials.map((m) => m.url).filter(Boolean));
       const ids: string[] = [];
       for (const m of (out.materials ?? []).slice(0, count)) {
@@ -361,8 +362,8 @@ export function lessonJob(
       // Container lessons keep their installed dependencies, so the learner's first check does not reinstall.
       const genCache = join(config.dataDir, "run", `gen-cache-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
       for (let attempt = 1; attempt <= 2 && !signal.aborted; attempt++) {
-        log(attempt === 1 ? `Writing the lesson with ${provider === "claude" ? "Claude" : "ChatGPT"}${web ? ", web search on" : ""}…` : "Asking for a corrected lesson…");
-        out = await structured<LessonOut>({ provider, system, prompt, schema: LESSON_SCHEMA, web, signal, onActivity: log });
+        log(attempt === 1 ? `Writing the lesson with ${providerLabel(user, provider)}${web ? ", web search on" : ""}…` : "Asking for a corrected lesson…");
+        out = await structured<LessonOut>({ user, provider, system, prompt, schema: LESSON_SCHEMA, web, signal, onActivity: log });
         const problems = validateLesson(track, out);
         if (problems.length) {
           log(`The lesson broke the rules: ${problems.join("; ")}`);
