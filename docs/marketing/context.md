@@ -11,11 +11,11 @@ A signed-in browser session through the public URL has not been checked.
 
 ## Product facts
 
-- **Public name and canonical URL:** Stupen, https://stupen.subcult.tv for the site, which is not deployed yet. The app is at https://study.subcult.tv, invited learners only.
+- **Public name and canonical URL:** Stupen, https://stupen.subcult.tv for the site and https://stupen.subcult.tv/app/ for the app (open since November 14, 2026).
 - **Product category and maturity:** a practice coach that runs on the web. It is in development, unreleased and self-hosted on SUBCULT's homelab.
 - **One sentence:** Stupen helps people learning any subject practise at their own level. It plans the steps, builds exercises it has already solved, and coaches them up to a help limit they set.
-- **Current offer:** none. There is no public sign-up, price or download.
-- **Requirements:** an account on SUBCULT's sign-in and a modern browser.
+- **Current offer:** a free account; the learner connects their own AI provider account or API key, which the provider bills. No price, no download.
+- **Requirements:** an email address (or GitHub, or a passkey), an API key or OpenRouter account, and a modern browser.
 - **Primary action:** read how the help limit works (https://stupen.subcult.tv/#demo). Invited learners can also sign in at https://study.subcult.tv.
 - **Feedback and support destination:** https://subcult.tv/support for supporting the collective. Issues: https://github.com/subculture-collective/stupen/issues.
 
@@ -57,7 +57,7 @@ Brand master: `studio/brands/stupen`, built November 14, 2026, pending approval.
 | C5 | Any outcome ("learn faster", "better retention") | none | Remove | Only with measured evidence |
 
 **Excluded or planned capabilities:**
-- a public release, sign-up or pricing;
+- pricing or a paid plan;
 - mobile apps;
 - teacher or classroom features;
 - progress analytics beyond the coach's notes.
@@ -79,4 +79,4 @@ Brand master: `studio/brands/stupen`, built November 14, 2026, pending approval.
 
 **Baseline:** not yet measured.
 
-**Next decision:** after 30 days, decide whether to open sign-ups, based on direct feedback rather than views.
+**Next decision:** after 30 days, review sign-ups, limits and feedback, based on direct feedback rather than views.

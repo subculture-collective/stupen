@@ -1,6 +1,6 @@
 # Stupen marketing
 
-Draft marketing for Stupen, made from the Studio marketing starter on November 14, 2026. Nothing here is approved, scheduled or sent. Stupen is not released and the brand pack is not approved for public use. Treat every piece as a draft.
+Draft marketing for Stupen, made from the Studio marketing starter on November 14, 2026. Nothing here is approved, scheduled or sent. Stupen opened to the public on November 14, 2026, and the owner approved the brand pack for the website and social posts the same day. Treat every piece as a draft.
 
 - [context.md](context.md): product facts, audience, voice, claims and evidence.
 - [packet.md](packet.md): positioning, descriptions, landing copy, FAQ, launch post, release note, demo brief and a 30-day plan.
