@@ -1,0 +1,89 @@
+#cloud-config
+# Stupen runner VM: runs learner code for the Stupen server.
+# QEMU starts it with restrict=on, so it has no route to the host, the LAN or
+# the internet. Its only way out is the host's egress proxy, reached at
+# 10.0.2.100:3128 through a guestfwd; the proxy refuses private addresses.
+# build-seed.sh fills in @SSH_PUBLIC_KEY@.
+hostname: stupen-runner
+manage_etc_hosts: true
+groups: [docker]
+users:
+  - name: stupen
+    uid: 1000
+    groups: [sudo, docker]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      - @SSH_PUBLIC_KEY@
+ssh_pwauth: false
+disable_root: true
+apt:
+  proxy: http://10.0.2.100:3128
+  http_proxy: http://10.0.2.100:3128
+  https_proxy: http://10.0.2.100:3128
+package_update: true
+packages:
+  - bubblewrap
+  - docker.io
+  - python3-venv
+  - python3-pip
+  - golang
+  - rustc
+  - cargo
+  - default-jdk-headless
+  - gcc
+  - g++
+  - sqlite3
+  - poppler-utils
+  - curl
+  - ca-certificates
+  - xz-utils
+  - zstd
+  - rsync
+write_files:
+  - path: /etc/environment
+    append: true
+    content: |
+      http_proxy=http://10.0.2.100:3128
+      https_proxy=http://10.0.2.100:3128
+      HTTP_PROXY=http://10.0.2.100:3128
+      HTTPS_PROXY=http://10.0.2.100:3128
+      no_proxy=localhost,127.0.0.1
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "default-runtime": "runsc",
+        "runtimes": { "runsc": { "path": "/usr/local/bin/runsc" } },
+        "proxies": { "http-proxy": "http://10.0.2.100:3128", "https-proxy": "http://10.0.2.100:3128", "no-proxy": "localhost,127.0.0.1" },
+        "log-driver": "local",
+        "live-restore": true
+      }
+  - path: /usr/local/sbin/stupen-runner-tools
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # Installs gVisor and Node 24 through the proxy, each checked against
+      # its published checksum. Safe to rerun.
+      set -eu
+      export https_proxy=http://10.0.2.100:3128 http_proxy=http://10.0.2.100:3128
+      cd /tmp
+      if [ ! -x /usr/local/bin/runsc ]; then
+        base=https://storage.googleapis.com/gvisor/releases/release/latest/x86_64
+        curl -fsSLO "$base/gvisor.tar.zstd" -fsSLO "$base/gvisor.tar.zstd.sha512"
+        sha512sum -c gvisor.tar.zstd.sha512
+        tar --zstd -xf gvisor.tar.zstd -C /usr/local/bin
+      fi
+      if [ ! -x /opt/node/bin/node ]; then
+        v=$(curl -fsSL https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt | awk '/linux-x64.tar.xz$/ {print $2}' | sed 's/^node-\(v[0-9.]*\)-.*/\1/')
+        curl -fsSLO "https://nodejs.org/dist/$v/node-$v-linux-x64.tar.xz" -fsSLO "https://nodejs.org/dist/$v/SHASUMS256.txt"
+        grep " node-$v-linux-x64.tar.xz\$" SHASUMS256.txt | sha256sum -c -
+        mkdir -p /opt/node && tar -xJf "node-$v-linux-x64.tar.xz" -C /opt/node --strip-components=1
+        ln -sf /opt/node/bin/node /usr/local/bin/node
+      fi
+runcmd:
+  - [/usr/local/sbin/stupen-runner-tools]
+  - [systemctl, restart, docker]
+  - [mkdir, -p, /opt/stupen, /var/lib/stupen]
+  - [chown, "stupen:stupen", /opt/stupen, /var/lib/stupen]
+  - [touch, /var/lib/cloud/stupen-runner-ready]

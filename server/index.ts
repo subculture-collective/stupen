@@ -30,7 +30,8 @@ import { checkBaseUrl, deleteConnection, getConnection, KINDS, kindInfo, listCon
 import { clearPkce, openrouterCallback, openrouterStart } from "./openrouter.ts";
 import { apiChat, listModels } from "./providers/api.ts";
 import { config } from "./config.ts";
-import { containerChecks, containerPreview, dockerAvailable, ensureInfra } from "./containers.ts";
+import { dockerAvailable, ensureInfra } from "./containers.ts";
+import * as exec from "./exec.ts";
 import { allPresets } from "./environments.ts";
 import { cancelJob, findJob, lessonJob, listJobs, planJob } from "./jobs.ts";
 import { addText, addUpload, addUrl } from "./materials.ts";
@@ -39,7 +40,7 @@ import { claudeChat } from "./providers/claude.ts";
 import { codexChat } from "./providers/codex.ts";
 import { type ChatEvent, type ChatRequest, subscriptionEnv } from "./providers/process.ts";
 import { lessonCommands, RUNNERS, runner } from "./runners.ts";
-import { runChecksIn, runnerAvailability, sandboxStatus } from "./sandbox.ts";
+import { sandboxStatus } from "./sandbox.ts";
 import {
   appendLog,
   assistByLesson,
@@ -160,13 +161,14 @@ async function checkLesson(user: string, trackId: string, lesson: string) {
   let checks;
   if (r.id === "container") {
     if (!track.environment) throw new HttpError(400, "set up the track's container environment in Settings first");
-    if (!(await dockerAvailable()).ok) throw new HttpError(503, (await dockerAvailable()).detail ?? "Docker is not available");
+    const d = await exec.dockerAvailable();
+    if (!d.ok) throw new HttpError(503, d.detail ?? "Docker is not available");
     const dir = lessonDir(user, trackId, lesson);
-    checks = await containerChecks(dir, join(dir, ".cache"), track.environment);
+    checks = await exec.containerChecks(dir, join(dir, ".cache"), track.environment);
   } else {
     const commands = lessonCommands(r, files.map((f) => f.path), track.customCommand);
     if (!commands.length) throw new HttpError(400, r.graded === "coach" ? "written lessons are graded by the coach: use Submit for grading" : "set a check command in the track settings first");
-    checks = await runChecksIn(lessonDir(user, trackId, lesson), commands);
+    checks = await exec.quickChecks(lessonDir(user, trackId, lesson), r.id, track.customCommand);
   }
   const meta = await getLesson(user, trackId, lesson);
   const failStreak = checks.passed ? 0 : (meta.failStreak ?? 0) + 1;
@@ -330,7 +332,7 @@ const routes: Route[] = [
     method: "GET",
     pattern: /^\/api\/me$/,
     handle: async (user, _m, req) => {
-      const [sandbox, available, dockerOk] = await Promise.all([sandboxStatus(), runnerAvailability(), dockerAvailable()]);
+      const { sandbox, runners: available, docker: dockerOk } = await exec.status();
       const a = accounts.get(req);
       return {
         user: a ? (a.email ?? a.name ?? a.id) : user,
@@ -338,7 +340,7 @@ const routes: Route[] = [
         isAdmin: a ? a.isAdmin : true,
         sandbox,
         docker: dockerOk,
-        runners: RUNNERS.map((r) => ({ id: r.id, label: r.label, syntax: r.syntax, layout: r.layout, graded: r.graded ?? null, ...(r.id === "container" ? dockerOk : available[r.id]) })),
+        runners: RUNNERS.map((r) => ({ id: r.id, label: r.label, syntax: r.syntax, layout: r.layout, graded: r.graded ?? null, ...(r.id === "container" ? dockerOk : (available[r.id] ?? { ok: false, detail: "the code runner did not report it" })) })),
         environments: allPresets(),
         levels: LEVELS.map((id) => ({ id, label: LEVEL_LABEL[id] })),
       };
@@ -445,7 +447,7 @@ const routes: Route[] = [
       if (track.runner !== "container" || !track.environment?.preview) throw new HttpError(400, "this track's environment has no preview");
       const dir = lessonDir(user, m[1]!, m[2]!);
       await getLesson(user, m[1]!, m[2]!);
-      return containerPreview(dir, join(dir, ".cache"), track.environment);
+      return exec.containerPreview(dir, join(dir, ".cache"), track.environment);
     },
   },
   {
@@ -664,6 +666,11 @@ async function listen() {
 void listen().then(async (where) => {
   console.log(`stupen on ${where}`);
   console.log(`  data    ${config.dataDir}`);
+  if (exec.remote()) {
+    const st = await exec.status();
+    console.log(`  runner  ${config.runnerUrl}: ${st.sandbox.detail} ${st.docker.detail ?? ""}`);
+    return;
+  }
   console.log(`  sandbox ${(await sandboxStatus()).detail}`);
   const d = await dockerAvailable();
   console.log(`  docker  ${d.detail}`);

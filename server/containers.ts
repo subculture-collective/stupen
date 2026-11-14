@@ -13,7 +13,17 @@ const run = promisify(execFile);
 export const INTERNAL_NET = "study-coach-internal";
 const EGRESS_NET = "study-coach-egress";
 export const PROXY = "study-coach-egress-proxy";
-const PROXY_URL = `http://${PROXY}:3128`;
+/**
+ * In the runner VM the egress proxy runs on the host, outside the VM, and the
+ * VM reaches it at EGRESS_PROXY_URL; containers that need the internet then
+ * join the VM's normal bridge, whose only way out is that proxy.
+ */
+const EXTERNAL_PROXY = process.env.EGRESS_PROXY_URL || undefined;
+const PROXY_URL = EXTERNAL_PROXY ?? `http://${PROXY}:3128`;
+const netFor = (online: boolean) => (EXTERNAL_PROXY && online ? "bridge" : INTERNAL_NET);
+const CGROUP = process.env.CGROUP_PARENT ?? "batch.slice";
+const cgroupArgs = () => (CGROUP ? ["--cgroup-parent", CGROUP] : []);
+const SLOTS = Number(process.env.CONTAINER_SLOTS ?? 3);
 const PROXY_ENV = { HTTP_PROXY: PROXY_URL, HTTPS_PROXY: PROXY_URL, http_proxy: PROXY_URL, https_proxy: PROXY_URL, NO_PROXY: "localhost,127.0.0.1", no_proxy: "localhost,127.0.0.1" };
 const HELPERS = join(config.appDir, "container");
 const UID = `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
@@ -47,6 +57,7 @@ let infra: Promise<void> | undefined;
 export function ensureInfra(): Promise<void> {
   infra ??= (async () => {
     if (!(await exists("network", INTERNAL_NET))) await docker(["network", "create", "--internal", "--label", "study-coach=1", INTERNAL_NET]);
+    if (EXTERNAL_PROXY) return;
     if (!(await exists("network", EGRESS_NET))) await docker(["network", "create", "--label", "study-coach=1", EGRESS_NET]);
     const code = (await readFile(join(config.appDir, "server/egress-proxy.ts"))).toString() + (await readFile(join(config.appDir, "server/netguard.ts"))).toString();
     const hash = createHash("sha256").update(code).digest("hex").slice(0, 16);
@@ -96,7 +107,7 @@ export function prepareImage(env: Environment, log: (m: string) => void = () => 
       log("Running the environment's setup commands…");
       const name = `study-coach-setup-${key}-${Date.now().toString(36)}`;
       try {
-        const args = ["run", "--name", name, "--network", INTERNAL_NET, "--security-opt", "no-new-privileges", "--memory", "4g", "--pids-limit", "2048", "--user", "0:0"];
+        const args = ["run", "--name", name, "--network", netFor(true), "--security-opt", "no-new-privileges", "--memory", "4g", "--pids-limit", "2048", "--user", "0:0"];
         for (const [k, v] of Object.entries(PROXY_ENV)) args.push("-e", `${k}=${v}`);
         args.push("--entrypoint", "sh", env.image, "-c", env.setup);
         await docker(args, 1_800_000).catch((e) => {
@@ -125,7 +136,7 @@ function shortLabel(cmd: string, first = false): string {
 let active = 0;
 const queue: (() => void)[] = [];
 async function slot<T>(fn: () => Promise<T>): Promise<T> {
-  if (active >= 3) await new Promise<void>((r) => queue.push(r));
+  if (active >= SLOTS) await new Promise<void>((r) => queue.push(r));
   active++;
   try {
     return await fn();
@@ -152,11 +163,11 @@ function runContainer(o: RunOpts): Promise<CheckResult> {
   const name = `study-coach-run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const args = [
     "run", "--rm", "--name", name, "--label", "study-coach=1",
-    "--network", INTERNAL_NET,
+    "--network", netFor(o.network),
     "--user", UID, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
     "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=4g", "--tmpfs", "/work:rw,exec,nosuid,size=4g,uid=" + UID.split(":")[0] + ",gid=" + UID.split(":")[1],
     "--memory", o.env.memory, "--memory-swap", o.env.memory, "--cpus", String(o.env.cpus), "--pids-limit", "1024",
-    "--cgroup-parent", "batch.slice",
+    ...cgroupArgs(),
     "-v", `${o.src}:/src:ro`, "-v", `${o.cache}:/cache`, "-v", `${HELPERS}:/opt/study:ro`,
     "-w", "/work",
     "-e", "HOME=/tmp/home", "-e", "TERM=dumb", "-e", "NO_COLOR=1", "-e", "FORCE_COLOR=0",
@@ -292,9 +303,9 @@ export async function renderPage(url: string): Promise<string> {
   const image = await prepareImage(BROWSER_ENV);
   const r = await docker(
     [
-      "run", "--rm", "--label", "study-coach=1", "--network", INTERNAL_NET,
+      "run", "--rm", "--label", "study-coach=1", "--network", netFor(true),
       "--user", UID, "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--read-only", "--tmpfs", "/tmp:rw,exec,size=512m",
-      "--memory", "1g", "--pids-limit", "512", "--cgroup-parent", "batch.slice",
+      "--memory", "1g", "--pids-limit", "512", ...cgroupArgs(),
       "-e", "HOME=/tmp", "-e", `RENDER_PROXY=${PROXY_URL}`,
       "-v", `${join(config.appDir, "node_modules/playwright-core")}:/opt/pw:ro`, "-v", `${HELPERS}:/opt/study:ro`,
       "--entrypoint", "node", image, "/opt/study/render.mjs", url,
