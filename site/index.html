@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stupen: exactly as much help as you ask for</title>
+<meta name="description" content="Stupen is a practice coach for any subject at any level. It plans what to practise, builds exercises it has already solved, and helps only as much as you allow, on a help limit from 0 to 6.">
+<link rel="canonical" href="https://stupen.subcult.tv/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Stupen: exactly as much help as you ask for">
+<meta property="og:description" content="A practice coach that plans, builds exercises it has already solved, and stays under the help limit you set.">
+<meta property="og:url" content="https://stupen.subcult.tv/">
+<meta property="og:image" content="https://stupen.subcult.tv/assets/og.png">
+<meta property="og:image:alt" content="stupen. Exactly as much help as you ask for. A staircase drawing with seven steps numbered 0 to 6; step 3 is marked as your limit.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" href="assets/favicon-16.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preload" href="fonts/manrope-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="wrap bar">
+  <a class="brand" href="./"><img src="assets/mark-primary.svg" alt="" width="34" height="34">stupen</a>
+  <nav class="nav" aria-label="Main">
+    <a href="docs/">Docs</a>
+    <a href="#status">Status</a>
+    <a href="#support">Support</a>
+  </nav>
+</header>
+
+<main id="main">
+  <section class="wrap hero" aria-labelledby="hero-title">
+    <div>
+      <p class="label">Practice coach · ступень, a step</p>
+      <h1 id="hero-title">Exactly as much help as you ask for.</h1>
+      <p class="lede">Stupen is a practice coach for any subject at any level. Tell it what you want to learn and where you are starting. It plans the steps, <strong>builds exercises it has already solved</strong>, and coaches you <strong>only as much as you allow</strong>, on a help limit from 0 to 6.</p>
+      <div class="actions">
+        <a class="btn fill" href="#demo">Try the help limit</a>
+        <a class="btn" href="docs/">Read the docs</a>
+      </div>
+    </div>
+    <figure>
+      <img src="assets/stair.svg" width="600" height="464" alt="A staircase drawn in section with seven steps numbered 0 to 6. Step 3 has a yellow edge and is labelled your limit, 3, diagnose; steps 4 to 6 are drawn faintly. A dimension line reads: 7 steps, 0 equals questions only, 6 equals full solution.">
+    </figure>
+  </section>
+
+  <section class="demo" id="demo" aria-labelledby="demo-title">
+    <div class="wrap demo-grid">
+      <div>
+        <p class="label">The help limit</p>
+        <h2 id="demo-title">Pick the highest step it may use</h2>
+        <p class="intro">Seven levels, from questions only to a full solution. The coach stays under your limit and labels every reply with the level it used. Choose a step to see the same stuck moment answered at that level.</p>
+        <div class="steps" role="radiogroup" aria-label="Help limit" data-steps>
+          <button class="step" type="button" role="radio" aria-checked="false" data-level="0"><span class="nose" aria-hidden="true"></span><span class="n">0</span><span class="sr-only"> Questions only</span></button>
+          <button class="step" type="button" role="radio" aria-checked="false" data-level="1"><span class="nose" aria-hidden="true"></span><span class="n">1</span><span class="sr-only"> Point</span></button>
+          <button class="step" type="button" role="radio" aria-checked="false" data-level="2"><span class="nose" aria-hidden="true"></span><span class="n">2</span><span class="sr-only"> Explain</span></button>
+          <button class="step" type="button" role="radio" aria-checked="true" data-level="3"><span class="nose" aria-hidden="true"></span><span class="n">3</span><span class="sr-only"> Diagnose</span></button>
+          <button class="step above" type="button" role="radio" aria-checked="false" data-level="4"><span class="nose" aria-hidden="true"></span><span class="n">4</span><span class="sr-only"> Direct</span></button>
+          <button class="step above" type="button" role="radio" aria-checked="false" data-level="5"><span class="nose" aria-hidden="true"></span><span class="n">5</span><span class="sr-only"> Fragment</span></button>
+          <button class="step above" type="button" role="radio" aria-checked="false" data-level="6"><span class="nose" aria-hidden="true"></span><span class="n">6</span><span class="sr-only"> Solve</span></button>
+        </div>
+        <div class="scale label"><span>0 · questions only</span><span>6 · full solution</span></div>
+      </div>
+      <div class="chat" aria-live="polite">
+        <p class="label">Mock-up · a Python lesson</p>
+        <div class="test">FAILED test_solution.py::test_ignores_punctuation
+assert count_words("Hi, hi!") == {"hi": 2}
+  got {"hi,": 1, "hi!": 1}</div>
+        <div class="msg you"><div class="who"><b>You</b></div>My test still fails and I don't see why.</div>
+        <div class="msg"><div class="who"><b>Coach</b><span class="level" data-level-label>help 3 · diagnose</span></div><p data-reply>Your split leaves punctuation on the words, so "hi," and "hi!" are different keys. Lower-casing them is fine; the punctuation is what is wrong.</p></div>
+        <p class="mock">Replies on this page were written for the demo. In Stupen, the coach answers your own code and your latest check output.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap features" aria-labelledby="features-title">
+    <p class="label">What it does</p>
+    <h2 id="features-title">A plan, real exercises and a coach that knows when to stop</h2>
+    <div class="cards">
+      <article class="card"><p class="num">7</p><h3>Help levels</h3><p>Questions only, point, explain, diagnose, direct, fragment and solve. Raise the limit when you're stuck, lower it when you want to work alone.</p></article>
+      <article class="card"><p class="num">2</p><h3>Checks before you see a lesson</h3><p>A lesson's hidden solution must pass its tests and the starter files must fail them. If that still fails after one retry, the lesson says its tests are unverified.</p></article>
+      <article class="card"><p class="num">12</p><h3>Quick formats</h3><p>Python, TypeScript, JavaScript, Go, Rust, Java, C, C++, SQL and Bash in a sandbox, plus written answers the coach grades and your own check command.</p></article>
+      <article class="card"><p class="num">13</p><h3>Container environments</h3><p>React, Node, a plain web page, Python, Go, Rust, Java, Ruby, PHP, .NET, Elixir, Deno and Bun, with any packages, or any Docker image you choose.</p></article>
+      <article class="card"><p class="num">4</p><h3>Ways to add materials</h3><p>Paste a link, upload a file, paste text, or let it search the web. Build what you add into your plan, turn it into a lesson, or attach it to a question.</p></article>
+      <article class="card"><p class="num">13</p><h3>Prompts</h3><p>Buttons above the chat, from "give me a hint" to "quiz me". Any prompt can send itself, or be suggested, when you open a lesson, fail, get stuck, pass or hand in.</p></article>
+    </div>
+  </section>
+
+  <section class="wrap status" aria-label="Status and support">
+    <div id="status">
+      <p class="label">Status</p>
+      <h2>Not released</h2>
+      <p>Stupen runs on SUBCULT's homelab for invited learners, behind a sign-in. There is no public sign-up, download or source repository yet.</p>
+      <p>The coach runs on Claude and ChatGPT. It can be wrong, and the help limit is an instruction it follows, not a guarantee. Every reply says which level it used.</p>
+    </div>
+    <div id="support" class="support">
+      <p class="label">Support</p>
+      <h2>Made by SUBCULT</h2>
+      <p>Stupen is built by SUBCULT, an independent collective that makes tools and media. If you want more work like this, you can support the collective.</p>
+      <p><a class="btn" href="https://subcult.tv/support">Support SUBCULT</a></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="./"><img src="assets/mark-dark.svg" alt="" width="28" height="28">stupen</a>
+    <nav aria-label="Footer">
+      <a href="docs/">Docs</a>
+      <a href="#status">Status</a>
+      <a href="https://subcult.tv/support">Support</a>
+      <a href="https://subcult.tv">subcult.tv</a>
+    </nav>
+    <p class="fine">Stupen is a SUBCULT product. Not released; the source is not public yet.</p>
+  </div>
+</footer>
+</body>
+</html>

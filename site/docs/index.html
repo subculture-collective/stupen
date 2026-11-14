@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Docs - Stupen</title>
+<meta name="description" content="How to use Stupen: tracks and plans, the help limit, lessons and checks, materials, prompts, containers, keys and recovery.">
+<link rel="canonical" href="https://stupen.subcult.tv/docs/">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Stupen docs">
+<meta property="og:description" content="Tracks and plans, the help limit, lessons and checks, materials, prompts and containers.">
+<meta property="og:url" content="https://stupen.subcult.tv/docs/">
+<meta property="og:image" content="https://stupen.subcult.tv/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../assets/favicon-16.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="wrap bar">
+  <a class="brand" href="../"><img src="../assets/mark-primary.svg" alt="" width="34" height="34">stupen</a>
+  <nav class="nav" aria-label="Main">
+    <a href="./" aria-current="page">Docs</a>
+    <a href="../#status">Status</a>
+    <a href="../#support">Support</a>
+  </nav>
+</header>
+
+<div class="wrap docs">
+  <nav class="toc" aria-label="On this page">
+    <a href="#start">Getting started</a>
+    <a href="#limit">The help limit</a>
+    <a href="#plans">Plans</a>
+    <a href="#lessons">Lessons and checks</a>
+    <a href="#formats">Practice formats</a>
+    <a href="#containers">Containers</a>
+    <a href="#materials">Materials</a>
+    <a href="#prompts">Prompts</a>
+    <a href="#keys">Keys</a>
+    <a href="#recovery">Undo and recovery</a>
+    <a href="#limits">Limits</a>
+    <a href="#more">More</a>
+  </nav>
+
+  <main id="main" class="doc">
+    <p class="label">Docs</p>
+    <h1>Using Stupen</h1>
+    <p>Stupen plans what to practise, builds exercises it has already solved and coaches you up to a help limit you choose. It is not released: it runs on SUBCULT's homelab for invited learners. These docs describe that running app.</p>
+
+    <h2 id="start">Getting started</h2>
+    <ol>
+      <li>Sign in. Stupen sits behind SUBCULT's sign-in; each person gets their own tracks, prompts and history.</li>
+      <li>Create a <strong>track</strong>: the subject in your words, your level (brand new, beginner, intermediate, advanced or expert), your goals, your background, how you like to learn and how long a session is.</li>
+      <li>Pick a <strong>practice format</strong> (see <a href="#formats">Practice formats</a>). Stupen guesses one from the subject; React, for example, suggests the React container.</li>
+      <li>Add materials you already have, if any, and choose whether to write the plan now or to search the web for good material first.</li>
+      <li>Open the first lesson, work in the editor, run the checks and ask the coach when you need it.</li>
+    </ol>
+
+    <h2 id="limit">The help limit</h2>
+    <p>You choose how much the coach may help, from 0 to 6. It stays under your limit and labels each reply with the level it used. The default depends on your level and can be changed for each lesson.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Level</th><th>Name</th><th>The coach…</th></tr></thead>
+        <tbody>
+          <tr><td class="lv">0</td><td><strong>Questions only</strong></td><td>asks what you think, tried or saw</td></tr>
+          <tr><td class="lv">1</td><td><strong>Point</strong></td><td>names the idea, or the part of the work or output to look at</td></tr>
+          <tr><td class="lv">2</td><td><strong>Explain</strong></td><td>explains the idea or the error message in general terms</td></tr>
+          <tr class="limit"><td class="lv">3</td><td><strong>Diagnose</strong></td><td>says what is wrong in your work, not how to fix it</td></tr>
+          <tr><td class="lv">4</td><td><strong>Direct</strong></td><td>describes the fix or approach in words or pseudocode</td></tr>
+          <tr><td class="lv">5</td><td><strong>Fragment</strong></td><td>shows a few lines that don't finish the task</td></tr>
+          <tr><td class="lv">6</td><td><strong>Solve</strong></td><td>gives a full worked solution; the attempt is closed</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">The limit is an instruction to the coach, which is a language model and can be wrong. If a useful answer needs a higher level, it says so and asks you to raise the limit.</p>
+
+    <h2 id="plans">Plans</h2>
+    <p>The plan sets the order, scope and pace of your lessons; each lesson is built when you reach it. You can:</p>
+    <ul>
+      <li><strong>Revise it</strong> with an instruction, such as "go slower", "add a small project" or "prepare me for interviews".</li>
+      <li><strong>Adapt it to your progress</strong>: the coach re-plans the remaining lessons from how the finished ones went.</li>
+      <li><strong>Edit it yourself</strong> as Markdown.</li>
+      <li><strong>Restore an earlier version</strong>: every change keeps the previous plan.</li>
+    </ul>
+    <p>The coach keeps short progress notes about you, which later lessons and replies use. You can read and edit them on the plan page.</p>
+
+    <h2 id="lessons">Lessons and checks</h2>
+    <p>A lesson has a brief, starter files, tests or a written task, escalating hints and, often, a reading list. Before you see it, its hidden reference solution must pass the tests and the starter files must fail them. If that check still fails after one retry, the lesson is kept and marked <em>tests unverified</em>.</p>
+    <ul>
+      <li><strong>Run checks</strong> saves your files and runs the tests in a fresh, isolated copy of the lesson, so code cannot change its own tests.</li>
+      <li><strong>Hints</strong> open one at a time in the brief.</li>
+      <li><strong>Add a file</strong> with <code>+</code> next to the tabs. Test files stay read-only.</li>
+      <li><strong>Preview</strong> builds web lessons and shows them in an isolated frame that can't reach the app.</li>
+      <li><strong>Written answers</strong> are handed in with <em>Submit for grading</em>; the coach records pass or revise.</li>
+    </ul>
+
+    <h2 id="formats">Practice formats</h2>
+    <h3>Quick, no packages</h3>
+    <p>Python, TypeScript, JavaScript, Go, Rust, Java, C, C++, SQL (SQLite) and Bash, using the standard library, in a sandbox with no network. Checks start at once.</p>
+    <h3>Written answers</h3>
+    <p>For any subject without a test runner: concepts, design, maths, natural languages. You answer in a Markdown file and the coach grades it against the brief.</p>
+    <h3>Your own check command</h3>
+    <p>For another language installed on the server: you give the shell command that checks a lesson folder.</p>
+    <h3>Container</h3>
+    <p>Real projects with any packages. See <a href="#containers">Containers</a>.</p>
+
+    <h2 id="containers">Containers</h2>
+    <p>Thirteen ready-made environments: React with Vite, a plain web page, Node, Python, Go, Rust, Java with Maven, Ruby, PHP with Composer, C# and .NET, Elixir, Deno and Bun. A custom environment can use any Docker image with your own setup, install, check and preview commands.</p>
+    <ul>
+      <li>Packages install from the internet when a manifest such as <code>package.json</code> or <code>requirements.txt</code> changes, and stay cached for the lesson. You can edit the manifest to add a package.</li>
+      <li>Checks run offline unless the environment allows network (the .NET environment does).</li>
+      <li>Containers run with limited memory and CPU, and their network reaches the public internet only, never the network Stupen runs on.</li>
+    </ul>
+
+    <h2 id="materials">Materials</h2>
+    <p>Add what you learn from: a link, an upload (PDF, Markdown, text, Word, ODT, EPUB, HTML, notebooks or code) or pasted text. Or let the coach search the web and save what it finds. Then build materials into your plan, make a lesson from them, or attach one to a question in the chat. Pages that need JavaScript are rendered before their text is saved.</p>
+
+    <h2 id="prompts">Prompts</h2>
+    <p>The buttons above the chat come from your prompt library. There are thirteen to start: Explain the idea first, Give me a hint, Explain the failure, I'm stuck, Review my solution, Grade my answer, Explain the selection, Explain it more simply, Show another example, Quiz me, Go deeper, Where is this used? and What should I practise next?</p>
+    <p>Edit them, add your own and reorder them on the Prompts page. A prompt can use placeholders such as <code>{{selection}}</code> for text selected in the editor or <code>{{failing}}</code> for the failing check output. Any prompt can have a trigger:</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Trigger</th><th>Fires</th></tr></thead>
+        <tbody>
+          <tr><td>Only when I pick it</td><td>never on its own</td></tr>
+          <tr><td>When I open a lesson for the first time</td><td>once per lesson</td></tr>
+          <tr><td>When my checks fail</td><td>after a failing run</td></tr>
+          <tr><td>When my checks fail three times in a row</td><td>on every third failure in a row</td></tr>
+          <tr><td>When my checks pass</td><td>the first time a lesson passes</td></tr>
+          <tr><td>When I submit a written answer</td><td>on Submit for grading</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Each triggered prompt either <strong>sends automatically</strong> or is <strong>suggested</strong> above the message box. Switch automatic prompts off in the coach panel at any time.</p>
+
+    <h2 id="keys">Keys</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Key</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td><code>Ctrl</code>+<code>Enter</code> (<code>⌘</code>+<code>Enter</code> on a Mac)</td><td>Run checks, or submit a written answer</td></tr>
+          <tr><td><code>Ctrl</code>+<code>S</code> (<code>⌘</code>+<code>S</code>)</td><td>Save the open file; files also save as you type</td></tr>
+          <tr><td><code>Enter</code> in the message box</td><td>Send to the coach</td></tr>
+          <tr><td><code>Shift</code>+<code>Enter</code></td><td>New line in the message</td></tr>
+          <tr><td><code>Tab</code> in the editor</td><td>Indent</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="recovery">Undo and recovery</h2>
+    <ul>
+      <li><strong>Reset file</strong> puts a lesson file back to its starter code.</li>
+      <li><strong>Earlier versions</strong> on the plan page restores any previous plan; the current one is kept.</li>
+      <li>Files you added to a lesson can be deleted; files that came with the lesson can only be reset.</li>
+      <li><strong>Solution</strong> shows the reference solution after you confirm. It closes the attempt and the lesson shows that you viewed it.</li>
+    </ul>
+
+    <h2 id="limits">Limits</h2>
+    <ul>
+      <li>Stupen is not released and has no public sign-up, download or source repository.</li>
+      <li>The coach is a language model and can be wrong, about the subject and about the help level it reports.</li>
+      <li>Generated lessons can contain mistakes even when verified; tell the coach when a test looks wrong.</li>
+      <li>Quick formats use the standard library only. Use a container format for packages.</li>
+    </ul>
+
+    <h2 id="more">More</h2>
+    <ul>
+      <li><a href="../">Stupen home</a></li>
+      <li><a href="https://subcult.tv">SUBCULT</a>, the collective that makes Stupen</li>
+      <li><a href="https://subcult.tv/support">Support SUBCULT</a></li>
+      <li>Source code, issues, contributing and security policy: not public yet.</li>
+    </ul>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../assets/mark-dark.svg" alt="" width="28" height="28">stupen</a>
+    <nav aria-label="Footer">
+      <a href="./">Docs</a>
+      <a href="../#status">Status</a>
+      <a href="https://subcult.tv/support">Support</a>
+      <a href="https://subcult.tv">subcult.tv</a>
+    </nav>
+    <p class="fine">Stupen is a SUBCULT product. Not released; the source is not public yet.</p>
+  </div>
+</footer>
+</body>
+</html>

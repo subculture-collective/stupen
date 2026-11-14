@@ -1,0 +1,4 @@
+http://stupen.subcult.tv {
+    encode gzip zstd
+    reverse_proxy stupen-site:8080
+}

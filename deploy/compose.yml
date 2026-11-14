@@ -1,0 +1,16 @@
+services:
+  stupen-site:
+    image: ${STUPEN_SITE_IMAGE:?Set the Stupen site image}
+    container_name: stupen-site
+    networks: [projects]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+      tv.subcult.source-revision: ${STUPEN_SITE_REVISION:?Set the source revision}
+networks:
+  projects:
+    external: true
