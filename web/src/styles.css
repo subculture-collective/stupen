@@ -314,6 +314,17 @@ a {
   font-size: 14px;
   margin: 0 0 8px;
 }
+.pill {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 500;
+  white-space: nowrap;
+}
 .pill-ok {
   background: var(--ok-soft);
   color: var(--ok);
