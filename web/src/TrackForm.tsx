@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { api, type Environment, type Level, type Me, type Provider, type Track, type TrackState } from "./api.ts";
-import { ProviderToggle } from "./ProviderToggle.tsx";
+import { ModelPicker } from "./ModelPicker.tsx";
 import { ConfirmButton } from "./ui.tsx";
 import { LADDER } from "./ladder.ts";
 
@@ -299,7 +299,7 @@ export function TrackForm(props: {
       <div className="field-row">
         <div className="field">
           <span>Model for plans and lessons</span>
-          <ProviderToggle value={provider} onChange={setProvider} label="Model for plans and lessons" />
+          <ModelPicker value={provider} onChange={setProvider} label="Model for plans and lessons" />
         </div>
         <label className="check">
           <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} />

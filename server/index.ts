@@ -26,6 +26,9 @@ import {
   useSignInLink,
 } from "./auth.ts";
 import { clampCeiling, HeaderParser, systemPrompt, turnPrompt } from "./coach.ts";
+import { checkBaseUrl, deleteConnection, getConnection, KINDS, kindInfo, listConnections, mayUseServerLogins, providerChoices, saveConnection } from "./connections.ts";
+import { clearPkce, openrouterCallback, openrouterStart } from "./openrouter.ts";
+import { apiChat, listModels } from "./providers/api.ts";
 import { config } from "./config.ts";
 import { containerChecks, containerPreview, dockerAvailable, ensureInfra } from "./containers.ts";
 import { allPresets } from "./environments.ts";
@@ -104,7 +107,7 @@ async function body(req: IncomingMessage, limit = 1_000_000): Promise<any> {
   }
 }
 
-const provider = (v: unknown) => (v === "codex" ? "codex" : v === "claude" ? "claude" : undefined);
+const provider = (v: unknown) => (typeof v === "string" && /^[a-z0-9]{1,24}$/.test(v) ? v : undefined);
 const strOr = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 20) : undefined);
 
@@ -181,8 +184,16 @@ async function checkLesson(user: string, trackId: string, lesson: string) {
 
 async function chat(user: string, req: IncomingMessage, res: ServerResponse) {
   const input = await body(req);
-  const providerFn = chatProviders[input.provider];
-  if (!providerFn) throw new HttpError(400, "unknown provider");
+  const providerId = provider(input.provider) ?? "";
+  let providerFn: (req: ChatRequest) => AsyncGenerator<ChatEvent>;
+  if (chatProviders[providerId]) {
+    if (!mayUseServerLogins(user)) throw new HttpError(403, "Connect your own model on the Models page first.");
+    providerFn = chatProviders[providerId]!;
+  } else {
+    const c = getConnection(user, providerId);
+    if (!c) throw new HttpError(400, "Choose a model: that connection no longer exists.");
+    providerFn = (r) => apiChat(user, c, r);
+  }
   const message = String(input.message ?? "").trim().slice(0, 20_000);
   if (!message) throw new HttpError(400, "empty message");
   const track = await getTrack(user, String(input.track ?? ""));
@@ -333,7 +344,23 @@ const routes: Route[] = [
       };
     },
   },
-  { method: "GET", pattern: /^\/api\/providers$/, handle: () => providerStatus() },
+  { method: "GET", pattern: /^\/api\/providers$/, handle: async (user) => (mayUseServerLogins(user) ? providerStatus() : {}) },
+  { method: "GET", pattern: /^\/api\/models$/, handle: async (user) => ({ choices: providerChoices(user), kinds: KINDS, connections: listConnections(user) }) },
+  { method: "POST", pattern: /^\/api\/connections$/, handle: async (user, _m, req) => saveConnection(user, await body(req)) },
+  { method: "DELETE", pattern: /^\/api\/connections\/(c[a-f0-9]{12})$/, handle: async (user, m) => (deleteConnection(user, m[1]!), { ok: true }) },
+  {
+    method: "POST",
+    pattern: /^\/api\/connections\/models$/,
+    handle: async (user, _m, req) => {
+      const i = await body(req);
+      const stored = typeof i.id === "string" ? getConnection(user, i.id) : undefined;
+      const kind = stored?.kind ?? (kindInfo(String(i.kind))?.id);
+      if (!kind) throw new HttpError(400, "Choose a provider.");
+      const key = typeof i.key === "string" && i.key.trim() ? i.key.trim() : stored?.key;
+      if (!key) throw new HttpError(400, "Paste your API key first.");
+      return { models: await listModels(kind, key, stored?.baseUrl || (kind === "compatible" ? checkBaseUrl(String(i.baseUrl ?? "")) : "")) };
+    },
+  },
   { method: "GET", pattern: /^\/api\/tracks$/, handle: (user) => listTracks(user) },
   { method: "POST", pattern: /^\/api\/tracks$/, handle: async (user, _m, req) => createTrack(user, await body(req)) },
   { method: "GET", pattern: new RegExp(`^/api/tracks/${T}$`), handle: (user, m) => trackState(user, m[1]!) },
@@ -557,6 +584,21 @@ const server = createServer(async (req, res) => {
       if (path === config.basePath) return redirect(res, `${config.basePath}/`);
       if (!path.startsWith(`${config.basePath}/`)) throw new HttpError(404, "not found");
       path = path.slice(config.basePath.length);
+    }
+    if (method === "GET" && (path === "/auth/openrouter" || path === "/auth/openrouter/callback")) {
+      const raw = req.headers[config.userHeader];
+      const who = config.authMode === "accounts" ? sessionAccount(req)?.id : userId(Array.isArray(raw) ? raw[0] : raw);
+      if (!who) return redirect(res, `${config.basePath}/#/`);
+      if (path === "/auth/openrouter") {
+        const { location, setCookie } = openrouterStart();
+        return redirect(res, location, setCookie);
+      }
+      try {
+        await openrouterCallback(who, req, url);
+        return redirect(res, `${config.basePath}/#/models?connected=openrouter`, clearPkce());
+      } catch (e) {
+        return redirect(res, `${config.basePath}/#/models?error=${encodeURIComponent(e instanceof Error ? e.message : "OpenRouter connection failed")}`, clearPkce());
+      }
     }
     if (config.authMode === "accounts" && method === "GET" && path === "/auth/github") {
       const { location, setCookie } = githubStart(req);

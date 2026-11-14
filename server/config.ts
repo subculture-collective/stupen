@@ -48,6 +48,12 @@ export const config = {
   /** SMTP URL for sign-in links, e.g. smtps://user:pass@smtp-relay.brevo.com:465. "log" (or unset outside production) prints links to the log instead, for local testing. */
   smtpUrl: env.SMTP_URL || undefined,
   mailFrom: env.MAIL_FROM ?? "Stupen <info@subcult.tv>",
+  /**
+   * Let "Other OpenAI-compatible API" connections use http and private or
+   * loopback addresses, such as Ollama on the same machine. Only for a
+   * self-hosted copy whose users you trust: it lets them reach your network.
+   */
+  allowPrivateEndpoints: env.ALLOW_PRIVATE_ENDPOINTS === "1",
   githubClientId: env.GITHUB_CLIENT_ID || undefined,
   githubClientSecret: env.GITHUB_CLIENT_SECRET || undefined,
   /** Header with the client's address, set by a trusted proxy (e.g. cf-connecting-ip). */

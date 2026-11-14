@@ -1573,3 +1573,22 @@ textarea.mono {
   display: grid;
   gap: 8px;
 }
+.models .card h2 {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.connection .row, .add-connection .row {
+  margin-top: 8px;
+}
+.add-connection {
+  display: grid;
+  gap: 6px;
+}
+.add-connection label {
+  margin-top: 6px;
+}
+.model-picker {
+  max-width: 260px;
+}

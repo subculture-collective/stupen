@@ -7,7 +7,8 @@ import { runner } from "./runners.ts";
 import type { Checks } from "./sandbox.ts";
 import { HttpError, inside, newId, readJson, safeRel, slugify, writeAtomic, writeJson } from "./util.ts";
 
-export type Provider = "claude" | "codex";
+/** "claude", "codex" (server logins) or a connection id. */
+export type Provider = string;
 export const LEVELS = ["new", "beginner", "intermediate", "advanced", "expert"] as const;
 export type Level = (typeof LEVELS)[number];
 export const LEVEL_LABEL: Record<Level, string> = {
@@ -142,7 +143,7 @@ export function trackFields(input: any, base?: Track): Omit<Track, "id" | "creat
     style: str(input.style ?? base?.style, 1000),
     sessionMinutes: Math.min(240, Math.max(5, Math.trunc(Number(input.sessionMinutes ?? base?.sessionMinutes ?? 30)) || 30)),
     defaultCeiling: Number.isFinite(ceiling) ? Math.min(6, Math.max(0, ceiling)) : 3,
-    provider: input.provider === "codex" ? "codex" : input.provider === "claude" ? "claude" : (base?.provider ?? "claude"),
+    provider: typeof input.provider === "string" && /^[a-z0-9]{1,24}$/.test(input.provider) ? input.provider : (base?.provider ?? "claude"),
     web: input.web === undefined ? (base?.web ?? true) : Boolean(input.web),
   };
 }

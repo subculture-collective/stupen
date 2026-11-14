@@ -54,6 +54,18 @@ const SCHEMA = [
     created_at INTEGER NOT NULL,
     last_used INTEGER NOT NULL DEFAULT 0
   )`,
+  `CREATE TABLE IF NOT EXISTS connections (
+    id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    model TEXT NOT NULL,
+    base_url TEXT NOT NULL DEFAULT '',
+    secret BLOB NOT NULL,
+    key_hint TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS connections_owner ON connections(owner)`,
   `CREATE INDEX IF NOT EXISTS sessions_account ON sessions(account_id)`,
   `CREATE INDEX IF NOT EXISTS passkeys_account ON passkeys(account_id)`,
 ];

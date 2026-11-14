@@ -2,10 +2,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { config } from "../config.ts";
+import { getConnection, mayUseServerLogins } from "../connections.ts";
+import { HttpError } from "../util.ts";
+import { apiStructured } from "./api.ts";
 import { claudeToolArgs } from "./claude.ts";
 import { jsonLines } from "./process.ts";
 
-export type Provider = "claude" | "codex";
+/** "claude" or "codex" (the server's subscription logins) or a learner's connection id. */
+export type Provider = string;
 
 /**
  * One request that must return JSON matching `schema`, on the same
@@ -14,6 +18,7 @@ export type Provider = "claude" | "codex";
  * `onActivity` receives searches and page reads as they happen.
  */
 export async function structured<T>(opts: {
+  user: string;
   provider: Provider;
   system: string;
   prompt: string;
@@ -22,6 +27,12 @@ export async function structured<T>(opts: {
   signal?: AbortSignal;
   onActivity?: (message: string) => void;
 }): Promise<T> {
+  if (opts.provider !== "claude" && opts.provider !== "codex") {
+    const c = getConnection(opts.user, opts.provider);
+    if (!c) throw new HttpError(400, "That model connection no longer exists. Choose another in the track settings.");
+    return apiStructured<T>(c, opts);
+  }
+  if (!mayUseServerLogins(opts.user)) throw new HttpError(403, "Connect your own model on the Models page first.");
   const base = join(config.dataDir, "run", "generate");
   await mkdir(base, { recursive: true });
   const dir = await mkdtemp(join(base, `${opts.provider}-`));

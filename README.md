@@ -4,7 +4,7 @@
 
 Stupen (ступень, a step; said STOO-pen) is a practice coach for anyone learning anything, at any level. You describe what you want to learn. The coach writes a plan sized to you, then builds hands-on lessons one at a time. Each lesson has exercises and tests that run in a sandbox. A chat coach helps as much or as little as you allow, on a help limit from 0, questions only, to 6, a full solution.
 
-It is not released. SUBCULT runs it on its homelab for invited learners; the site is https://stupen.subcult.tv. Claude and ChatGPT run through their subscription command-line tools (`claude -p` and `codex exec`), not billed API keys.
+It is not released. SUBCULT runs it on its homelab for invited learners; the site is https://stupen.subcult.tv. Each person connects their own AI account on the Models page: an API key for Anthropic, OpenAI, Google Gemini, Mistral, Groq, DeepSeek, xAI or any OpenAI-compatible API, or an OpenRouter account through OpenRouter's sign-in. Keys are encrypted at rest (AES-256-GCM, server key in `secret.key` in the data folder) and never sent back to the browser. Admins can also use the server's own Claude and ChatGPT subscription logins (`claude -p` and `codex exec`).
 
 ## What it does
 
@@ -82,7 +82,9 @@ Needs Node 24, `claude` and `codex` signed in for the server's user, `bwrap` (De
 | `STUDY_DATA_DIR` | `~/.local/share/study-coach` | Tracks, lessons, materials, prompts, coach log |
 | `STUDY_TOOLS_DIR` | `~/.local/share/study-coach-tools` | Sandbox tool installs (pytest venv) |
 | `STUDY_SANDBOX` | `1` | `0` runs checks without bubblewrap |
-| `CLAUDE_MODEL`, `CODEX_MODEL` | CLI default | Model overrides |
+| `CLAUDE_MODEL`, `CODEX_MODEL` | CLI default | Model overrides for the server logins |
+| `SECRET_KEY_FILE` | `<data>/secret.key` | 32-byte key (base64) that encrypts stored API keys; created on first use. Back it up with the data folder |
+| `ALLOW_PRIVATE_ENDPOINTS` | off | `1` lets OpenAI-compatible connections use http and private addresses (Ollama on the same machine). Only for copies whose users you trust |
 
 `scripts/capture.ts` screenshots the main views from a running build, for visual review.
 
