@@ -38,7 +38,7 @@ export const KINDS: KindInfo[] = [
 ];
 export const kindInfo = (k: string) => KINDS.find((x) => x.id === k);
 
-/** The server's subscription logins, offered to admins (and in proxy mode) only. */
+/** The server's subscription logins, offered only to permitted accounts. */
 export const CLI_PROVIDERS = [
   { id: "claude", label: "Claude (server subscription)" },
   { id: "codex", label: "ChatGPT (server subscription)" },
@@ -147,11 +147,13 @@ export function deleteConnection(owner: string, id: string) {
 
 /** Whether this user may use the server's own subscription logins. */
 export function mayUseServerLogins(user: string): boolean {
-  if (config.authMode !== "accounts") return true;
-  return Boolean(getAccount(user)?.isAdmin);
+  if (config.authMode !== "accounts") return config.subscriptionAccounts?.has(user) ?? true;
+  const account = getAccount(user);
+  if (!account || account.disabled) return false;
+  return config.subscriptionAccounts ? config.subscriptionAccounts.has(account.id) : account.isAdmin;
 }
 
-/** Every model choice this user has, for pickers: their connections, plus server logins for admins. */
+/** Every model choice this user has: their connections, plus any permitted server logins. */
 export function providerChoices(user: string) {
   const own = listConnections(user).map((c) => ({ id: c.id, label: c.label, model: c.model, kind: c.kind, web: c.web }));
   const cli = mayUseServerLogins(user) ? CLI_PROVIDERS.map((p) => ({ id: p.id, label: p.label, model: "", kind: p.id, web: true })) : [];

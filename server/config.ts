@@ -37,6 +37,8 @@ export const config = {
   openSignup: env.SIGNUP !== "closed",
   /** Accounts with these email addresses are admins. */
   adminEmails: new Set((env.ADMIN_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)),
+  /** When set, only these account IDs may use the server's subscription logins. Empty disables access. */
+  subscriptionAccounts: env.SUBSCRIPTION_ACCOUNTS === undefined ? undefined : new Set(env.SUBSCRIPTION_ACCOUNTS.split(",").map((id) => id.trim()).filter(Boolean)),
   /** email=folder pairs: a new account for that email keeps an existing users/<folder>. */
   legacyUsers: new Map(
     (env.LEGACY_USERS ?? "")
