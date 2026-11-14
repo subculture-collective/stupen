@@ -11,6 +11,13 @@ import { config } from "../server/config.ts";
 const venv = join(config.toolsDir, "py");
 const python = ["/usr/bin/python3", "/usr/local/bin/python3"].find((p) => existsSync(p));
 if (!python) throw new Error("no system python3 in /usr/bin or /usr/local/bin");
-if (!existsSync(join(venv, "bin/python"))) execFileSync("uv", ["venv", "--python", python, venv], { stdio: "inherit" });
-execFileSync("uv", ["pip", "install", "--python", join(venv, "bin/python"), "pytest"], { stdio: "inherit" });
+// uv when it is installed; otherwise the standard venv and pip (the runner VM).
+let uv = true;
+try {
+  execFileSync("uv", ["--version"], { stdio: "ignore" });
+} catch {
+  uv = false;
+}
+if (!existsSync(join(venv, "bin/python"))) execFileSync(uv ? "uv" : python, uv ? ["venv", "--python", python, venv] : ["-m", "venv", venv], { stdio: "inherit" });
+execFileSync(uv ? "uv" : join(venv, "bin/python"), uv ? ["pip", "install", "--python", join(venv, "bin/python"), "pytest"] : ["-m", "pip", "install", "-q", "pytest"], { stdio: "inherit" });
 console.log(`pytest ready in ${venv}`);

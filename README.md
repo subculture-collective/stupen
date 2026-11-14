@@ -39,7 +39,7 @@ Each check copies the lesson into `/work` in a fresh container. `/cache` keeps t
 - **Network:** containers join the internal Docker network `study-coach-internal`, which has no route out and cannot reach the host. Their only way out is the `study-coach-egress-proxy` container (`server/egress-proxy.ts`). It allows ports 80 and 443 to public addresses and refuses loopback, private, link-local, CGNAT (the tailnet) and Docker addresses. It checks the address it connects to, so DNS tricks cannot reach the LAN.
 - **JavaScript-built pages:** links whose HTML has almost no text are rendered in a Chromium container behind the same proxy (`container/render.mjs`).
 
-Containers share the host kernel: this is strong isolation for learning projects, not a boundary for hostile multi-tenant code. Give access only to people you trust with the server.
+Containers share the host kernel: this is strong isolation for learning projects, not a boundary for hostile multi-tenant code. On a server open to strangers, set `RUNNER_URL` so learner code runs in the runner VM instead, where containers also run under gVisor (`deploy/runner-vm/README.md`).
 
 ## Safety
 
@@ -83,6 +83,7 @@ Needs Node 24, `claude` and `codex` signed in for the server's user, `bwrap` (De
 | `STUDY_TOOLS_DIR` | `~/.local/share/study-coach-tools` | Sandbox tool installs (pytest venv) |
 | `STUDY_SANDBOX` | `1` | `0` runs checks without bubblewrap |
 | `CLAUDE_MODEL`, `CODEX_MODEL` | CLI default | Model overrides for the server logins |
+| `RUNNER_URL`, `RUNNER_TOKEN` | unset | Send all learner code to the runner agent in its VM (see `deploy/runner-vm/README.md`) |
 | `SECRET_KEY_FILE` | `<data>/secret.key` | 32-byte key (base64) that encrypts stored API keys; created on first use. Back it up with the data folder |
 | `ALLOW_PRIVATE_ENDPOINTS` | off | `1` lets OpenAI-compatible connections use http and private addresses (Ollama on the same machine). Only for copies whose users you trust |
 

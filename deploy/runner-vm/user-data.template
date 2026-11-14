@@ -39,6 +39,7 @@ packages:
   - curl
   - ca-certificates
   - xz-utils
+  - zstd
   - rsync
 write_files:
   - path: /etc/environment
@@ -69,9 +70,9 @@ write_files:
       cd /tmp
       if [ ! -x /usr/local/bin/runsc ]; then
         base=https://storage.googleapis.com/gvisor/releases/release/latest/x86_64
-        curl -fsSLO "$base/runsc" -fsSLO "$base/runsc.sha512"
-        sha512sum -c runsc.sha512
-        install -m 0755 runsc /usr/local/bin/runsc
+        curl -fsSLO "$base/gvisor.tar.zstd" -fsSLO "$base/gvisor.tar.zstd.sha512"
+        sha512sum -c gvisor.tar.zstd.sha512
+        tar --zstd -xf gvisor.tar.zstd -C /usr/local/bin
       fi
       if [ ! -x /opt/node/bin/node ]; then
         v=$(curl -fsSL https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt | awk '/linux-x64.tar.xz$/ {print $2}' | sed 's/^node-\(v[0-9.]*\)-.*/\1/')
