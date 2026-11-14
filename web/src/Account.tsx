@@ -107,6 +107,8 @@ export function Account() {
         )}
       </div>
 
+      <DataCard email={info.email ?? info.id} />
+
       <div className="card">
         <h2>Signed-in devices</h2>
         <ul className="plain-list">
@@ -135,5 +137,66 @@ export function Account() {
         </div>
       </div>
     </section>
+  );
+}
+
+const mb = (b: number) => `${(b / 1024 / 1024).toFixed(b < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+
+/** Storage use, a download of everything, and account deletion. */
+function DataCard(props: { email: string }) {
+  const [usage, setUsage] = useState<{ bytes: number; limitBytes: number; tracks: number; trackLimit: number }>();
+  const [confirm, setConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => void auth.usage().then(setUsage, () => {}), []);
+  return (
+    <div className="card">
+      <h2>Your data</h2>
+      {usage && (
+        <p className="small">
+          {mb(usage.bytes)} of {mb(usage.limitBytes)} used · {usage.tracks} of {usage.trackLimit} tracks
+        </p>
+      )}
+      <p className="small muted">The download holds your tracks, plans, lessons, materials, prompts, coach log and chats. API keys are not included.</p>
+      <p>
+        <a className="button" href={`${BASE}/api/account/export`}>
+          Download my data
+        </a>
+      </p>
+      {!deleting ? (
+        <button type="button" className="small-button" onClick={() => setDeleting(true)}>
+          Delete my account…
+        </button>
+      ) : (
+        <div className="notice">
+          <p>
+            <strong>This deletes your account and everything in it, now and for good:</strong> tracks, lessons, materials, chats, passkeys and saved API keys. Type <code>{props.email}</code> to confirm.
+          </p>
+          <div className="row wrap">
+            <input aria-label="Confirm email" value={confirm} onChange={(e) => setConfirm(e.target.value)} style={{ maxWidth: 280 }} />
+            <button
+              type="button"
+              className="danger"
+              disabled={confirm.trim().toLowerCase() !== props.email}
+              onClick={async () => {
+                try {
+                  await auth.deleteAccount(confirm);
+                  location.replace(`${BASE}/#/`);
+                  location.reload();
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+            >
+              Delete everything
+            </button>
+            <button type="button" onClick={() => setDeleting(false)}>
+              Cancel
+            </button>
+          </div>
+          {error && <p className="error">{error}</p>}
+        </div>
+      )}
+    </div>
   );
 }
