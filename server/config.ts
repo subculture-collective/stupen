@@ -59,6 +59,9 @@ export const config = {
   /** Header with the client's address, set by a trusted proxy (e.g. cf-connecting-ip). */
   clientIpHeader: (env.CLIENT_IP_HEADER ?? "").toLowerCase() || undefined,
   sessionDays: Number(env.SESSION_DAYS ?? 30),
+  /** The runner agent in its VM (server/agent.ts). Unset: learner code runs on this machine. */
+  runnerUrl: env.RUNNER_URL || undefined,
+  runnerToken: env.RUNNER_TOKEN ?? "",
   /** Run learner and generated code in bubblewrap with no network and no home folder. */
   sandbox: env.STUDY_SANDBOX !== "0",
   claudeBin: env.CLAUDE_BIN ?? "claude",

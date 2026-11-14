@@ -6,9 +6,9 @@ import { addUrl } from "./materials.ts";
 import { providerLabel } from "./connections.ts";
 import { arr, enm, obj, type Provider, str, structured } from "./providers/structured.ts";
 import { config } from "./config.ts";
-import { containerChecks, dockerAvailable } from "./containers.ts";
+import { containerChecks, dockerAvailable, quickChecks } from "./exec.ts";
 import { layoutFor, lessonCommands, runner } from "./runners.ts";
-import { type Checks, runChecksIn } from "./sandbox.ts";
+import type { Checks } from "./sandbox.ts";
 import { skillPrompt } from "./skills.ts";
 import {
   assistByLesson,
@@ -387,9 +387,9 @@ export function lessonJob(
           log(`Checking the reference solution in the ${container ? "container" : "sandbox"}…`);
           checks.reference = container
             ? await containerChecks(scratch.dir, genCache, container, { overlay, log })
-            : await runChecksIn(scratch.dir, commands, { overlay });
+            : await quickChecks(scratch.dir, r.id, track.customCommand, overlay);
           log("Checking that the starter files do not already pass…");
-          checks.starter = container ? await containerChecks(scratch.dir, genCache, container, { log }) : await runChecksIn(scratch.dir, commands);
+          checks.starter = container ? await containerChecks(scratch.dir, genCache, container, { log }) : await quickChecks(scratch.dir, r.id, track.customCommand);
         } finally {
           await scratch.cleanup();
         }

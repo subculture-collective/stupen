@@ -172,7 +172,9 @@ export async function sandboxed(files: Record<string, Buffer | string>, argv: st
   try {
     const { writeFile } = await import("node:fs/promises");
     for (const [name, data] of Object.entries(files)) await writeFile(join(work, name), data);
-    return await runOne(tc, work, { argv }, 60_000, maxOutput);
+    // "@python" is the tools venv's Python on whichever machine runs this.
+    const resolved = argv.map((a, i) => (i === 0 && a === "@python" ? join(config.toolsDir, "py/bin/python") : a));
+    return await runOne(tc, work, { argv: resolved }, 60_000, maxOutput);
   } finally {
     await rm(work, { recursive: true, force: true });
   }

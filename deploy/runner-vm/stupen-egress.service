@@ -1,0 +1,18 @@
+# User unit on the host: the runner VM's only way out. HTTP and HTTPS
+# (CONNECT) to public addresses on ports 80 and 443; refuses loopback, LAN,
+# link-local, CGNAT (tailnet) and Docker addresses at connect time.
+[Unit]
+Description=Stupen egress proxy for the runner VM
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/.local/share/stupen/runner
+Environment=PROXY_HOST=127.0.0.1 PROXY_PORT=31280
+Environment=PATH=%h/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/share/mise/shims/node server/egress-proxy.ts
+Restart=on-failure
+RestartSec=5
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target

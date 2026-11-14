@@ -1,0 +1,20 @@
+# Guest unit: the runner agent. Installed to /etc/systemd/system/ in the VM.
+# RUNNER_TOKEN comes from /etc/stupen/agent.env (mode 600).
+[Unit]
+Description=Stupen runner agent
+After=docker.service
+Wants=docker.service
+
+[Service]
+User=stupen
+WorkingDirectory=/opt/stupen/current
+EnvironmentFile=/etc/stupen/agent.env
+Environment=NODE_ENV=production STUDY_DATA_DIR=/var/lib/stupen STUDY_TOOLS_DIR=/var/lib/stupen/tools
+Environment=EGRESS_PROXY_URL=http://10.0.2.100:3128 CGROUP_PARENT= CONTAINER_SLOTS=2
+Environment=PATH=/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/node/bin/node server/agent.ts
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

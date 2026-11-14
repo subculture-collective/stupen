@@ -105,4 +105,4 @@ server.on("connect", async (req, client, head) => {
   log("connect", target, "ok");
 });
 
-server.listen(PORT, "0.0.0.0", () => console.log(`egress proxy on :${PORT}`));
+server.listen(PORT, process.env.PROXY_HOST ?? "0.0.0.0", () => console.log(`egress proxy on ${process.env.PROXY_HOST ?? "0.0.0.0"}:${PORT}`));

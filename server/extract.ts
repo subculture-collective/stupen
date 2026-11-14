@@ -1,8 +1,7 @@
 import { extname } from "node:path";
 
-import { config } from "./config.ts";
 import { htmlToText } from "./fetch.ts";
-import { sandboxed } from "./sandbox.ts";
+import { sandboxed } from "./exec.ts";
 import { HttpError } from "./util.ts";
 
 const TEXT_EXT = /^\.(md|markdown|txt|text|rst|adoc|org|csv|tsv|json|ya?ml|toml|ini|xml|tex|py|ts|tsx|js|mjs|cjs|jsx|go|rs|java|kt|c|h|cc|cpp|hpp|cs|rb|php|swift|sql|sh|bash|zsh|lua|r|scala|hs|ex|exs|clj|dart|vue|svelte|css|scss|ipynb)$/i;
@@ -30,7 +29,7 @@ export async function extractText(name: string, data: Buffer): Promise<string> {
     return r.output;
   }
   if ([".docx", ".odt", ".epub"].includes(ext)) {
-    const r = await sandboxed({ "in.bin": data, "x.py": ZIP_TEXT }, [`${config.toolsDir}/py/bin/python`, "x.py"]);
+    const r = await sandboxed({ "in.bin": data, "x.py": ZIP_TEXT }, ["@python", "x.py"]);
     if (r.exitCode !== 0) throw new HttpError(422, `could not read ${ext}: ${r.output.slice(-300)}`);
     return r.output;
   }

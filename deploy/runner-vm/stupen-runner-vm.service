@@ -1,0 +1,23 @@
+# User unit on the host. Install to ~/.config/systemd/user/ and adjust DIR.
+# restrict=on: the guest reaches nothing but the forwards listed here.
+#   guestfwd 10.0.2.100:3128 -> the host's egress proxy (public addresses only)
+#   hostfwd 127.0.0.1:22292 -> guest ssh, 127.0.0.1:22291 -> runner agent
+[Unit]
+Description=Stupen runner VM (isolated learner code)
+After=stupen-egress.service
+Wants=stupen-egress.service
+
+[Service]
+Environment=DIR=/mnt/fast1/stupen-runner
+ExecStart=/usr/bin/qemu-system-x86_64 -name stupen-runner -enable-kvm -cpu host -smp 4 -m 4096 -machine q35 \
+  -drive file=${DIR}/runner.qcow2,if=virtio,format=qcow2,discard=unmap \
+  -drive file=${DIR}/seed.iso,media=cdrom,readonly=on \
+  -nic "user,model=virtio-net-pci,restrict=on,hostfwd=tcp:127.0.0.1:22292-:22,hostfwd=tcp:127.0.0.1:22291-:7070,guestfwd=tcp:10.0.2.100:3128-cmd:/usr/bin/socat - TCP:127.0.0.1:31280" \
+  -display none -serial file:${DIR}/serial.log -monitor unix:${DIR}/monitor.sock,server,nowait
+ExecStop=/bin/sh -c 'echo system_powerdown | /usr/bin/socat - UNIX-CONNECT:${DIR}/monitor.sock; sleep 30'
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
