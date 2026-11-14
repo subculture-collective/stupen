@@ -9,7 +9,7 @@ Stupen is a practice coach for people who want to get better at something themse
 ## Short descriptions
 
 - **One line:** A practice coach that gives you exactly as much help as you ask for.
-- **Profile bio (160):** Stupen plans your practice, builds exercises it has already solved, and helps only as much as you allow. By SUBCULT. Not released yet.
+- **Profile bio (160):** Stupen plans your practice, builds exercises it has already solved, and helps only as much as you allow. By SUBCULT. Free with your own AI key.
 - **Directory description:** Stupen is a web practice coach for any subject and level. It writes a plan, builds hands-on lessons, and its coach stays under a help limit you set from 0 to 6. In development; runs on SUBCULT's homelab.
 - **Page title:** Stupen: exactly as much help as you ask for
 - **Meta description:** Stupen is a practice coach for any subject at any level. It plans what to practise, builds exercises it has already solved, and helps only as much as you allow, on a help limit from 0 to 6.
@@ -24,7 +24,7 @@ Stupen helps people learning any subject practise at their own level. It writes 
 
 Each coded exercise is checked before you see it: the hidden solution must pass and the starter must fail (C2). The coach can still be wrong. The limit is an instruction it follows, not a guarantee (C1).
 
-Stupen is not released. It runs on SUBCULT's homelab for invited learners.
+Stupen is open: sign in at https://stupen.subcult.tv/app/ and connect your own AI account.
 
 **Next step:** see how the help limit works at https://stupen.subcult.tv/#demo. **Contact:** https://subcult.tv.
 
@@ -50,7 +50,7 @@ The landing page in `site/index.html` follows this copy.
 
 1. **What does it do?** It plans what you practise, builds lessons with tests or written tasks that it has solved first, and coaches you in chat up to a help limit you choose.
 2. **Who is it for?** Anyone practising a subject on their own, from brand new to expert. It suits programming best, because most formats have automated tests, but written answers work for any subject.
-3. **What does it cost and what do I need?** It isn't available to the public. Invited learners need an account on SUBCULT's sign-in and a browser.
+3. **What does it cost and what do I need?** An account is free. You connect your own AI account (an API key or OpenRouter), and that provider bills you for what you use.
 4. **How do I complete the first task?** Create a track, open the first lesson, write your solution and press Run checks. Ask the coach when you're stuck.
 5. **What are its limits?** It isn't released. The coach is a language model and can be wrong. Lessons can contain mistakes, and a lesson that couldn't be verified says so.
 6. **Where do I get help?** Invited learners ask SUBCULT directly; anyone can open an issue at https://github.com/subculture-collective/stupen/issues.
@@ -59,14 +59,14 @@ The landing page in `site/index.html` follows this copy.
 
 These posts introduce the name and the idea before a release. Pair each with the stair scene from `social/` in the pack, once the pack is approved.
 
-**Short social post:** Most chat assistants hand you the answer. Stupen asks how much help you want first, from 0 (questions only) to 6 (full solution), and stays under that. Not released yet. How the help limit works: https://stupen.subcult.tv/#demo
+**Short social post:** Most chat assistants hand you the answer. Stupen asks how much help you want first, from 0 (questions only) to 6 (full solution), and stays under that. Free with your own AI key: https://stupen.subcult.tv/
 
 **Demo thread:**
 
 1. You're stuck on a failing test. How much help do you want? Stupen makes you choose, from 0 to 6, before it answers. [stair scene]
 2. At 0 it only asks questions. At 3 it tells you what's wrong but not how to fix it. At 6 you get the full solution, and the attempt is closed. [demo capture at 0, 3 and 6]
 3. Every exercise is solved before you see it: its hidden solution passes the tests and the starter fails them. If that can't be verified, the lesson says so.
-4. It's not released yet; it runs on our homelab. Try the help limit on the site: https://stupen.subcult.tv/#demo
+4. Sign in and try it with your own AI key: https://stupen.subcult.tv/app/
 
 **Community introduction** (only where self-promotion is allowed; say up front that we built it): We're SUBCULT and we built Stupen, a practice coach with a help limit. You set how much the coach may help, and it labels each reply with the level it used. It isn't released. We'd like to know: when you learn with an assistant, would you set the limit once, or change it as you go? https://stupen.subcult.tv
 

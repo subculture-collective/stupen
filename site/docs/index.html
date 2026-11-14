@@ -48,11 +48,12 @@
   <main id="main" class="doc">
     <p class="label">Docs</p>
     <h1>Using Stupen</h1>
-    <p>Stupen plans what to practise, builds exercises it has already solved and coaches you up to a help limit you choose. It is not released: it runs on SUBCULT's homelab for invited learners. These docs describe that running app.</p>
+    <p>Stupen plans what to practise, builds exercises it has already solved and coaches you up to a help limit you choose. It runs on SUBCULT's server at <a href="/app/">stupen.subcult.tv/app</a>, with your own AI account.</p>
 
     <h2 id="start">Getting started</h2>
     <ol>
-      <li>Sign in. Stupen sits behind SUBCULT's sign-in; each person gets their own tracks, prompts and history.</li>
+      <li><a href="/app/">Sign in</a> with an emailed link, GitHub or a passkey. A new email address creates your account; each person gets their own tracks, prompts and history.</li>
+      <li>On the <strong>Models</strong> page, connect the AI the coach uses: paste an API key from Anthropic, OpenAI, Google, Mistral, Groq, DeepSeek, xAI or any OpenAI-compatible service, or choose <strong>Connect with OpenRouter</strong> to approve Stupen there. Keys are stored encrypted and never shown again. The provider bills you for what you use.</li>
       <li>Create a <strong>track</strong>: the subject in your words, your level (brand new, beginner, intermediate, advanced or expert), your goals, your background, how you like to learn and how long a session is.</li>
       <li>Pick a <strong>practice format</strong> (see <a href="#formats">Practice formats</a>). Stupen guesses one from the subject; React, for example, suggests the React container.</li>
       <li>Add materials you already have, if any, and choose whether to write the plan now or to search the web for good material first.</li>
@@ -160,7 +161,9 @@
 
     <h2 id="limits">Limits</h2>
     <ul>
-      <li>Stupen is not released and has no public sign-up or download. The <a href="https://github.com/subculture-collective/stupen">source</a> is public, and the README explains how to run your own copy.</li>
+      <li>Each account may run 150 checks and 60 previews an hour, and start 60 generation jobs, add 60 materials, send 400 coach messages and create 20 tracks a day. It may store 300 MB and keep 40 tracks.</li>
+      <li>Web search works with Anthropic, OpenAI, Google and OpenRouter connections; other providers coach without it.</li>
+      <li>The <a href="https://github.com/subculture-collective/stupen">source</a> is public, and the README explains how to run your own copy.</li>
       <li>The coach is a language model and can be wrong, about the subject and about the help level it reports.</li>
       <li>Generated lessons can contain mistakes even when verified; tell the coach when a test looks wrong.</li>
       <li>Quick formats use the standard library only. Use a container format for packages.</li>
@@ -188,7 +191,7 @@
       <a href="../terms/">Terms</a>
       <a href="https://subcult.tv">subcult.tv</a>
     </nav>
-    <p class="fine">Stupen is a SUBCULT product. Not released. Source code under the AGPL-3.0.</p>
+    <p class="fine">Stupen is a SUBCULT product. Source code under the AGPL-3.0.</p>
   </div>
 </footer>
 </body>

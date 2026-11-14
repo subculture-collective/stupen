@@ -1,0 +1,4 @@
+# The app's old address, before it moved to stupen.subcult.tv/app.
+http://study.subcult.tv {
+    redir https://stupen.subcult.tv/app/ 308
+}

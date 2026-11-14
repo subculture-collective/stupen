@@ -27,7 +27,7 @@ Every count and name on the pages comes from this repository. Change the pages w
 
 The help-limit demo on the landing page is a mock-up: its replies were written for the page and are labelled as such. `app.js` runs only the demo; the page reads fully without it.
 
-The page states that Stupen is not released and links the public source. Claims follow C-STUDY-01 to 06 in `studio/content/social/Product Claims Register.md` in `subcult-tv`.
+The page says Stupen is open with your own AI account, links the app at `/app/` and the public source. Claims follow C-STUDY-01 to 06 in `studio/content/social/Product Claims Register.md` in `subcult-tv`.
 
 ## Brand
 

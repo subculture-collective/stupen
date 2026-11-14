@@ -1,4 +1,20 @@
+# stupen.subcult.tv: the site from the stupen-site container, and the app at
+# /app through the SSH tunnel to the app's Unix socket on Kvant
+# (study-coach-edge-tunnel.service). The deploy replaces @EDGE_SECRET@ with the
+# app's EDGE_SECRET; keep the installed file root-owned, mode 640.
 http://stupen.subcult.tv {
-    encode gzip zstd
-    reverse_proxy stupen-site:8080
+    @app path /app /app/*
+    handle @app {
+        request_body {
+            max_size 25MB
+        }
+        reverse_proxy 172.20.0.1:34949 {
+            header_up X-Edge-Secret @EDGE_SECRET@
+            flush_interval -1
+        }
+    }
+    handle {
+        encode gzip zstd
+        reverse_proxy stupen-site:8080
+    }
 }
