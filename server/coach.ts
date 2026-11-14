@@ -23,7 +23,7 @@ export function trackSummary(t: Track): string {
   const r = runner(t.runner);
   return [
     `Subject: ${t.subject}`,
-    `Practice format: ${r.label}${r.id === "custom" && t.customCommand ? ` (checked with: ${t.customCommand})` : ""}`,
+    `Practice format: ${r.id === "container" && t.environment ? `${t.environment.label} (container ${t.environment.image}; packages can be added)` : r.label}${r.id === "custom" && t.customCommand ? ` (checked with: ${t.customCommand})` : ""}`,
     `Level: ${LEVEL_LABEL[t.level]}`,
     t.goals && `Goals: ${t.goals}`,
     t.background && `Background: ${t.background}`,

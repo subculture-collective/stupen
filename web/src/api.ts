@@ -3,7 +3,31 @@ export type Level = "new" | "beginner" | "intermediate" | "advanced" | "expert";
 export type Trigger = "manual" | "lesson-start" | "check-fail" | "stuck" | "check-pass" | "grade";
 
 export type RunnerInfo = { id: string; label: string; syntax: string; layout: string; graded: "coach" | null; ok: boolean; detail?: string };
-export type Me = { user: string; sandbox: { sandboxed: boolean; detail: string }; runners: RunnerInfo[]; levels: { id: Level; label: string }[] };
+export type Environment = {
+  preset?: string;
+  label: string;
+  image: string;
+  setup: string;
+  install: string;
+  check: string;
+  preview: string;
+  manifests: string[];
+  layout: string;
+  syntax: string;
+  checkNetwork: boolean;
+  env: Record<string, string>;
+  memory: string;
+  cpus: number;
+  timeoutSec: number;
+};
+export type Me = {
+  user: string;
+  sandbox: { sandboxed: boolean; detail: string };
+  docker: { ok: boolean; detail?: string };
+  runners: RunnerInfo[];
+  environments: Environment[];
+  levels: { id: Level; label: string }[];
+};
 
 export type Track = {
   id: string;
@@ -11,6 +35,7 @@ export type Track = {
   subject: string;
   runner: string;
   customCommand?: string;
+  environment?: Environment;
   level: Level;
   goals: string;
   background: string;
@@ -88,7 +113,7 @@ export type TrackState = {
   jobs: Job[];
 };
 
-export type LessonFile = { path: string; editable: boolean; role: "starter" | "test" | "support" };
+export type LessonFile = { path: string; editable: boolean; role: "starter" | "test" | "support"; added?: boolean };
 export type LessonState = { meta: LessonMeta; files: LessonFile[]; help: Help };
 
 export type Prompt = { id: string; label: string; text: string; trigger: Trigger; mode: "auto" | "suggest"; builtIn: boolean };
@@ -130,6 +155,9 @@ export const api = {
   writeFile: (track: string, lesson: string, path: string, content: string) => call<{ ok: true }>(`${l(track, lesson)}/file`, json("PUT", { path, content })),
   starter: (track: string, lesson: string, path: string) => call<{ content: string }>(`${l(track, lesson)}/starter?path=${q(path)}`),
   check: (track: string, lesson: string) => call<{ checks: Checks; meta: LessonMeta; firstPass: boolean }>(`${l(track, lesson)}/check`, { method: "POST" }),
+  preview: (track: string, lesson: string) => call<{ html?: string; result: CheckResult }>(`${l(track, lesson)}/preview`, { method: "POST" }),
+  newFile: (track: string, lesson: string, path: string, content = "") => call<{ ok: true }>(`${l(track, lesson)}/files`, json("POST", { path, content })),
+  deleteFile: (track: string, lesson: string, path: string) => call<{ ok: true }>(`${l(track, lesson)}/file?path=${q(path)}`, { method: "DELETE" }),
   solution: (track: string, lesson: string) => call<{ files: { path: string; content: string }[] }>(`${l(track, lesson)}/solution`, { method: "POST" }),
   material: (track: string, id: string) => call<{ material: Material; text: string }>(`${t(track)}/materials/${q(id)}`),
   addMaterial: (track: string, body: { kind: "url" | "text" | "file"; url?: string; title?: string; text?: string; name?: string; data?: string; note?: string }) =>

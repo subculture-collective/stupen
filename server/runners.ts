@@ -160,6 +160,15 @@ export const RUNNERS: Runner[] = [
     graded: "coach",
   },
   {
+    id: "container",
+    label: "Container (any language, any packages)",
+    syntax: "plain",
+    needs: [],
+    layout: "",
+    editable: (rel) => notInTests(rel) && !isTestName(basename(rel)),
+    commands: () => [],
+  },
+  {
     id: "custom",
     label: "Other (my own check command)",
     syntax: "plain",
@@ -169,6 +178,17 @@ export const RUNNERS: Runner[] = [
     commands: () => [],
   },
 ];
+
+/** The file conventions for a track, including its container environment. */
+export function layoutFor(t: { runner: string; customCommand?: string | undefined; environment?: { label: string; image: string; layout: string; check: string; checkNetwork: boolean; preview: string } | undefined }): string {
+  const r = runner(t.runner);
+  if (r.id === "container" && t.environment) {
+    const e = t.environment;
+    return `${e.layout || "Any layout that the check command below can test."}\nThe lesson runs in the Docker image ${e.image}. Dependencies listed in the project's manifest files are installed with internet access before the checks; the checks then run ${e.checkNetwork ? "with" : "without"} network access, using: ${e.check}${e.preview ? "\nThe learner also gets a live preview built from the project." : ""}`;
+  }
+  if (r.id === "custom") return `${r.layout}\nThe learner's check command, run in the lesson folder: ${t.customCommand ?? "(none set)"}`;
+  return r.layout;
+}
 
 export function runner(id: string): Runner {
   return RUNNERS.find((r) => r.id === id) ?? RUNNERS.find((r) => r.id === "written")!;

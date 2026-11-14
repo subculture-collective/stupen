@@ -2,6 +2,7 @@ import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises
 import { join, relative } from "node:path";
 
 import { config } from "./config.ts";
+import { cleanEnvironment, type Environment } from "./environments.ts";
 import { runner } from "./runners.ts";
 import type { Checks } from "./sandbox.ts";
 import { HttpError, inside, newId, readJson, safeRel, slugify, writeAtomic, writeJson } from "./util.ts";
@@ -25,6 +26,8 @@ export type Track = {
   runner: string;
   /** For the "custom" runner: a shell command run in the lesson folder. */
   customCommand?: string;
+  /** For the "container" runner: image, install and check commands. */
+  environment?: Environment;
   level: Level;
   goals: string;
   background: string;
@@ -126,11 +129,13 @@ export function trackFields(input: any, base?: Track): Omit<Track, "id" | "creat
   if (!subject) throw new HttpError(400, "say what you want to learn");
   const ceiling = Math.trunc(Number(input.defaultCeiling ?? base?.defaultCeiling ?? (level === "new" || level === "beginner" ? 4 : 3)));
   const customCommand = str(input.customCommand ?? base?.customCommand, 400);
+  const environment = r.id === "container" ? cleanEnvironment(input.environment ?? base?.environment ?? { preset: "node" }, input.environment ? undefined : base?.environment) : undefined;
   return {
     title: str(input.title ?? base?.title, 80) || subject,
     subject,
     runner: r.id,
     ...(r.id === "custom" && customCommand ? { customCommand } : {}),
+    ...(environment ? { environment } : {}),
     level,
     goals: str(input.goals ?? base?.goals, 2000),
     background: str(input.background ?? base?.background, 2000),
@@ -157,6 +162,7 @@ export async function updateTrack(user: string, id: string, input: any): Promise
   const old = await getTrack(user, id);
   const track: Track = { ...old, ...trackFields(input, old), id, createdAt: old.createdAt, updatedAt: new Date().toISOString() };
   if (track.runner !== "custom") delete track.customCommand;
+  if (track.runner !== "container") delete track.environment;
   await writeJson(join(trackDir(user, id), "track.json"), track);
   return track;
 }
@@ -270,7 +276,7 @@ export async function deleteLesson(user: string, track: string, lesson: string) 
 
 const MAX_FILE = 200_000;
 
-export async function lessonFiles(user: string, track: string, lesson: string): Promise<{ path: string; editable: boolean; role: LessonFile["role"] }[]> {
+export async function lessonFiles(user: string, track: string, lesson: string): Promise<{ path: string; editable: boolean; role: LessonFile["role"]; added?: boolean }[]> {
   const t = await getTrack(user, track);
   const meta = await getLesson(user, track, lesson);
   const dir = lessonDir(user, track, lesson);
@@ -278,7 +284,7 @@ export async function lessonFiles(user: string, track: string, lesson: string): 
   const found: string[] = [];
   async function walk(d: string) {
     for (const e of await readdir(d, { withFileTypes: true }).catch(() => [])) {
-      if (e.name.startsWith(".") || e.name === "target" || e.name === "node_modules") continue;
+      if (e.name.startsWith(".") || ["target", "node_modules", "vendor", "__pycache__", "dist", "_build", "deps", "bin", "obj"].includes(e.name)) continue;
       const full = join(d, e.name);
       if (e.isDirectory()) await walk(full);
       else if (e.isFile()) found.push(relative(dir, full));
@@ -288,8 +294,10 @@ export async function lessonFiles(user: string, track: string, lesson: string): 
   const roles = new Map(meta.files.map((f) => [f.path, f.role]));
   return found.sort().map((path) => {
     const role = roles.get(path) ?? (r.editable(path) ? "starter" : "support");
-    // A file is editable only when the runner says it is learner code and the generator did not mark it as a test.
-    return { path, role, editable: role === "starter" && r.editable(path) };
+    // Container lessons let the learner change anything but the tests (manifests too, to add packages).
+    // Otherwise a file is editable only when the runner says it is learner code and the generator did not mark it as a test.
+    const editable = r.id === "container" ? role !== "test" && r.editable(path) : role === "starter" && r.editable(path);
+    return { path, role, editable, ...(roles.has(path) ? {} : { added: true }) };
   });
 }
 
@@ -420,4 +428,23 @@ export async function starterContent(user: string, track: string, lesson: string
   return readFile(inside(join(lessonDir(user, track, lesson), ".meta", "starter"), rel), "utf8").catch(() => {
     throw new HttpError(404, "no starter copy of that file");
   });
+}
+
+/** The learner adds a file of their own to a lesson. */
+export async function createLessonFile(user: string, track: string, lesson: string, rel: string, content: string) {
+  if (!safeRel(rel)) throw new HttpError(400, "use a simple relative path such as src/helpers.ts");
+  const t = await getTrack(user, track);
+  if (!runner(t.runner).editable(rel)) throw new HttpError(403, "that name is reserved for tests or is not a learner file in this format");
+  const full = inside(lessonDir(user, track, lesson), rel);
+  if (await stat(full).catch(() => undefined)) throw new HttpError(409, "that file already exists");
+  if (Buffer.byteLength(content) > MAX_FILE) throw new HttpError(413, "file too large");
+  await writeAtomic(full, content);
+}
+
+/** Remove a file the learner added; files that came with the lesson stay. */
+export async function deleteLessonFile(user: string, track: string, lesson: string, rel: string) {
+  const meta = await getLesson(user, track, lesson);
+  if (!safeRel(rel)) throw new HttpError(400, "bad path");
+  if (meta.files.some((f) => f.path === rel)) throw new HttpError(403, "files that came with the lesson can be reset but not deleted");
+  await rm(inside(lessonDir(user, track, lesson), rel), { force: true });
 }

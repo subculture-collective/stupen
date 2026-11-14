@@ -1,3 +1,4 @@
+import { dockerAvailable, renderPage } from "./containers.ts";
 import { extractText } from "./extract.ts";
 import { fetchPublic, htmlToText } from "./fetch.ts";
 import { addMaterial, type Material } from "./store.ts";
@@ -11,7 +12,15 @@ export async function textFromUrl(url: string): Promise<{ title?: string; text: 
     return { text: await extractText("page.pdf", page.body), finalUrl: page.url };
   }
   if (type.includes("html") || /^\s*</.test(page.body.subarray(0, 200).toString())) {
-    const { title, text } = htmlToText(page.body.toString("utf8"));
+    let { title, text }: { title?: string | undefined; text: string } = htmlToText(page.body.toString("utf8"));
+    // Pages built by JavaScript arrive nearly empty: render them in headless Chrome in a container.
+    if (text.trim().length < 600 && (await dockerAvailable()).ok) {
+      const rendered = await renderPage(page.url).then(htmlToText, () => undefined);
+      if (rendered && rendered.text.trim().length > text.trim().length) {
+        title = rendered.title ?? title;
+        text = rendered.text;
+      }
+    }
     return { ...(title ? { title } : {}), text, finalUrl: page.url };
   }
   const name = new URL(page.url).pathname.split("/").pop() || "page.txt";

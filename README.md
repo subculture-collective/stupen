@@ -10,7 +10,9 @@ Claude and ChatGPT both run through their subscription command-line tools (`clau
 - **Plans.** The coach writes a learning plan, and can revise it on request ("go slower", "add a project") or adapt it to how your lessons went. Every earlier version is kept and can be restored.
 - **Lessons.** Each lesson has a brief, starter files, tests and escalating hints, built from the plan, a topic you type, or your materials.
   - Before you see a lesson, the server runs its hidden reference solution against the tests in the sandbox. The reference must pass and the starter files must fail. If not, the generator gets one more try with the evidence. A lesson that still fails is kept and marked "tests unverified".
-- **Practice formats.** Python, TypeScript, JavaScript, Go, Rust, Java, C, C++, SQL (SQLite) and Bash, plus two others:
+- **Practice formats.** Two kinds.
+  - **Quick:** Python, TypeScript, JavaScript, Go, Rust, Java, C, C++, SQL (SQLite) and Bash, standard library only, in bubblewrap; checks start instantly.
+  - **Container:** real projects in Docker with any packages. Presets: React + Vite, plain web page, Node, Python, Go, Rust, Java + Maven, Ruby, PHP + Composer, C# / .NET, Elixir, Deno and Bun. A custom environment can use any image with your own setup, install, check and preview commands, made in the app or added as a JSON file in `environments/` (repo or data folder). Learners can edit manifests to add packages and add their own files. Web environments get a live preview.
   - **Written answers:** for any subject; the coach grades them and records pass or revise.
   - **Your own check command:** for any other language installed on the server.
 - **Materials.** Add links, uploads (PDF, Markdown, text, Word, ODT, EPUB, HTML, notebooks, code) or pasted text, or let the coach search the web for you. You can then:
@@ -22,6 +24,20 @@ Claude and ChatGPT both run through their subscription command-line tools (`clau
   - Any prompt can have a trigger: opening a new lesson, failing checks, failing three times in a row, passing, or submitting a written answer. When it fires, the prompt either sends itself or is highlighted as a suggestion.
 - **Coach.** It sees the lesson files and your latest checks with every message, and stays within your help limit (0, questions only, to 6, full solution). It can search the web when you switch Web on. It keeps progress notes about you, which later lessons use.
 - **Users.** Behind a sign-in proxy such as Authelia, each user gets their own tracks, prompts and coach log, keyed by the `Remote-User` header.
+
+## Containers
+
+Each check copies the lesson into `/work` in a fresh container. `/cache` keeps the lesson's installed packages between runs.
+
+- **Install** runs whenever a manifest file changes (`package.json`, `requirements.txt`, `Cargo.toml` and so on), with internet access. Package install scripts are allowed.
+- **Check** runs offline unless the environment allows network.
+- **Setup** commands (for example `apt-get install`) run once as root and are kept as a local image `study-coach-env:<hash>`.
+- **Preview** builds the app into one self-contained HTML file (`container/preview-inline.mjs`). The browser shows it in a sandboxed frame with an opaque origin, so it cannot read the app or call its API with the learner's session.
+- **Limits:** containers run as the server's uid with every capability dropped, `no-new-privileges`, a read-only root filesystem, memory, CPU and process limits, and `--cgroup-parent batch.slice`. At most three run at once.
+- **Network:** containers join the internal Docker network `study-coach-internal`, which has no route out and cannot reach the host. Their only way out is the `study-coach-egress-proxy` container (`server/egress-proxy.ts`). It allows ports 80 and 443 to public addresses and refuses loopback, private, link-local, CGNAT (the tailnet) and Docker addresses. It checks the address it connects to, so DNS tricks cannot reach the LAN.
+- **JavaScript-built pages:** links whose HTML has almost no text are rendered in a Chromium container behind the same proxy (`container/render.mjs`).
+
+Containers share the host kernel: this is strong isolation for learning projects, not a boundary for hostile multi-tenant code. Give access only to people you trust with the server.
 
 ## Safety
 
@@ -43,7 +59,7 @@ pnpm test
 pnpm build && pnpm start
 ```
 
-Needs Node 24, `claude` and `codex` signed in for the server's user, and `bwrap` (Debian: `bubblewrap`). The compilers for the formats you use must be installed. Missing ones are shown as unavailable in the format picker.
+Needs Node 24, `claude` and `codex` signed in for the server's user, `bwrap` (Debian: `bubblewrap`) for quick formats, and Docker access for container formats. The compilers for the formats you use must be installed. Missing ones are shown as unavailable in the format picker.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -67,7 +83,8 @@ Needs Node 24, `claude` and `codex` signed in for the server's user, and `bwrap`
   - `jobs.ts` (plan, find and lesson generation)
   - `coach.ts` (coach prompts)
   - `runners.ts` (practice formats)
-  - `sandbox.ts`
+  - `sandbox.ts` (bubblewrap)
+  - `containers.ts`, `environments.ts` and `egress-proxy.ts` (Docker environments)
   - `fetch.ts` and `extract.ts` (materials)
   - `prompts.ts` (prompt library)
   - `providers/` (the two CLIs)
@@ -78,6 +95,8 @@ Needs Node 24, `claude` and `codex` signed in for the server's user, and `bwrap`
   - `Materials.tsx`
   - `Prompts.tsx`
   - `TrackForm.tsx`
+- `container/`: helpers mounted read-only into containers at `/opt/study` (preview inliner, page renderer, Maven proxy settings).
+- `environments/`: optional extra environment presets as JSON (same fields as the environment editor).
 - `skills/`: guidance every model call gets.
   - `learning-coach` is written for this app.
   - `write-plainly` and the language idiom files are copies from patstack, with their licence notices.

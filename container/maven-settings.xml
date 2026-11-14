@@ -1,0 +1,7 @@
+<!-- Maven reads proxies only from settings.xml; lesson containers reach the internet through the egress proxy. -->
+<settings>
+  <proxies>
+    <proxy><id>egress-https</id><active>true</active><protocol>https</protocol><host>study-coach-egress-proxy</host><port>3128</port></proxy>
+    <proxy><id>egress-http</id><active>true</active><protocol>http</protocol><host>study-coach-egress-proxy</host><port>3128</port></proxy>
+  </proxies>
+</settings>

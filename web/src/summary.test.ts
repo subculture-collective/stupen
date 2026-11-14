@@ -21,3 +21,20 @@ test("node --test totals", () => {
 test("PASS/FAIL lines from hand-written harnesses", () => {
   assert.equal(summarize(c("PASS add\nFAIL sub expected 1 got 2")), "1 of 2 cases pass");
 });
+
+test("vitest, jest, surefire, dotnet, exunit, minitest, phpunit, deno and bun totals", () => {
+  assert.equal(summarize(c(" Test Files  1 failed (1)\n      Tests  6 failed | 3 passed (9)")), "3 of 9 tests pass");
+  assert.equal(summarize(c("      Tests  9 passed (9)", true)), "9 of 9 tests pass");
+  assert.equal(summarize(c("Tests:       2 failed, 7 passed, 9 total")), "7 of 9 tests pass");
+  assert.equal(summarize(c("Tests run: 4, Failures: 1, Errors: 0\nTests run: 9, Failures: 2, Errors: 1")), "6 of 9 tests pass");
+  assert.equal(summarize(c("Failed!  - Failed:     2, Passed:     7, Skipped: 0")), "7 of 9 tests pass");
+  assert.equal(summarize(c("Finished in 0.1 seconds\n9 tests, 2 failures")), "7 of 9 tests pass");
+  assert.equal(summarize(c("9 runs, 12 assertions, 2 failures, 1 errors, 0 skips")), "6 of 9 tests pass");
+  assert.equal(summarize(c("OK (9 tests, 12 assertions)", true)), "9 of 9 tests pass");
+  assert.equal(summarize(c("FAILED | 3 passed | 1 failed (5ms)")), "3 of 4 tests pass");
+  assert.equal(summarize(c(" 3 pass\n 1 fail\n 4 expect() calls")), "3 of 4 tests pass");
+});
+
+test("singular test counts", () => {
+  assert.equal(summarize(c("1 test, 0 failures", true)), "1 of 1 tests pass");
+});

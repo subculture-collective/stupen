@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 
 import { clampCeiling, HeaderParser, systemPrompt, turnPrompt } from "./coach.ts";
 import { config } from "./config.ts";
+import { containerChecks, containerPreview, dockerAvailable, ensureInfra } from "./containers.ts";
+import { allPresets } from "./environments.ts";
 import { cancelJob, findJob, lessonJob, listJobs, planJob } from "./jobs.ts";
 import { addText, addUpload, addUrl } from "./materials.ts";
 import { PLACEHOLDERS, listPrompts, resetPrompts, savePrompts, TRIGGERS } from "./prompts.ts";
@@ -18,7 +20,9 @@ import { runChecksIn, runnerAvailability, sandboxStatus } from "./sandbox.ts";
 import {
   appendLog,
   assistByLesson,
+  createLessonFile,
   createTrack,
+  deleteLessonFile,
   deleteLesson,
   deleteMaterial,
   deleteTrack,
@@ -130,9 +134,17 @@ async function checkLesson(user: string, trackId: string, lesson: string) {
   const track = await getTrack(user, trackId);
   const r = runner(track.runner);
   const files = await lessonFiles(user, trackId, lesson);
-  const commands = lessonCommands(r, files.map((f) => f.path), track.customCommand);
-  if (!commands.length) throw new HttpError(400, r.graded === "coach" ? "written lessons are graded by the coach: use Submit for grading" : "set a check command in the track settings first");
-  const checks = await runChecksIn(lessonDir(user, trackId, lesson), commands);
+  let checks;
+  if (r.id === "container") {
+    if (!track.environment) throw new HttpError(400, "set up the track's container environment in Settings first");
+    if (!(await dockerAvailable()).ok) throw new HttpError(503, (await dockerAvailable()).detail ?? "Docker is not available");
+    const dir = lessonDir(user, trackId, lesson);
+    checks = await containerChecks(dir, join(dir, ".cache"), track.environment);
+  } else {
+    const commands = lessonCommands(r, files.map((f) => f.path), track.customCommand);
+    if (!commands.length) throw new HttpError(400, r.graded === "coach" ? "written lessons are graded by the coach: use Submit for grading" : "set a check command in the track settings first");
+    checks = await runChecksIn(lessonDir(user, trackId, lesson), commands);
+  }
   const meta = await getLesson(user, trackId, lesson);
   const failStreak = checks.passed ? 0 : (meta.failStreak ?? 0) + 1;
   const next = {
@@ -285,11 +297,13 @@ const routes: Route[] = [
     method: "GET",
     pattern: /^\/api\/me$/,
     handle: async (user) => {
-      const [sandbox, available] = await Promise.all([sandboxStatus(), runnerAvailability()]);
+      const [sandbox, available, dockerOk] = await Promise.all([sandboxStatus(), runnerAvailability(), dockerAvailable()]);
       return {
         user,
         sandbox,
-        runners: RUNNERS.map((r) => ({ id: r.id, label: r.label, syntax: r.syntax, layout: r.layout, graded: r.graded ?? null, ...available[r.id] })),
+        docker: dockerOk,
+        runners: RUNNERS.map((r) => ({ id: r.id, label: r.label, syntax: r.syntax, layout: r.layout, graded: r.graded ?? null, ...(r.id === "container" ? dockerOk : available[r.id]) })),
+        environments: allPresets(),
         levels: LEVELS.map((id) => ({ id, label: LEVEL_LABEL[id] })),
       };
     },
@@ -371,6 +385,31 @@ const routes: Route[] = [
     handle: async (user, m, _r, _s, url) => ({ content: await starterContent(user, m[1]!, m[2]!, url.searchParams.get("path") ?? "") }),
   },
   { method: "POST", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/check$`), handle: (user, m) => checkLesson(user, m[1]!, m[2]!) },
+  {
+    method: "POST",
+    pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/preview$`),
+    handle: async (user, m) => {
+      const track = await getTrack(user, m[1]!);
+      if (track.runner !== "container" || !track.environment?.preview) throw new HttpError(400, "this track's environment has no preview");
+      const dir = lessonDir(user, m[1]!, m[2]!);
+      await getLesson(user, m[1]!, m[2]!);
+      return containerPreview(dir, join(dir, ".cache"), track.environment);
+    },
+  },
+  {
+    method: "POST",
+    pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/files$`),
+    handle: async (user, m, req) => {
+      const i = await body(req);
+      await createLessonFile(user, m[1]!, m[2]!, String(i.path ?? "").trim(), String(i.content ?? ""));
+      return { ok: true };
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/file$`),
+    handle: async (user, m, _r, _s, url) => (await deleteLessonFile(user, m[1]!, m[2]!, url.searchParams.get("path") ?? ""), { ok: true }),
+  },
   {
     method: "POST",
     pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/solution$`),
@@ -456,4 +495,8 @@ void listen().then(async (where) => {
   console.log(`study-coach on ${where}`);
   console.log(`  data    ${config.dataDir}`);
   console.log(`  sandbox ${(await sandboxStatus()).detail}`);
+  const d = await dockerAvailable();
+  console.log(`  docker  ${d.detail}`);
+  // Networks and the egress proxy are created up front so the first container lesson does not wait for them.
+  if (d.ok) ensureInfra().catch((e) => console.warn(`  container network: ${(e as Error).message}`));
 });

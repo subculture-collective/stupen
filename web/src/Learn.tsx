@@ -67,10 +67,12 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
               state={state}
               lesson={lesson}
               graded={runner?.graded === "coach"}
+              preview={Boolean(state.track.runner === "container" && state.track.environment?.preview)}
               runnerOk={runner?.ok ?? true}
               runnerDetail={runner?.detail}
               sandboxed={props.me.sandbox.sandboxed}
               onMeta={(meta) => setLesson((l) => (l ? { ...l, meta } : l))}
+              onFiles={(files) => setLesson((l) => (l ? { ...l, files } : l))}
               onDeleted={async () => {
                 await props.refresh();
                 go({ page: "track", track: state.track.id, view: "learn" });
@@ -270,10 +272,12 @@ const Workbench = forwardRef<
     state: TrackState;
     lesson: { meta: LessonMeta; files: LessonFile[]; help: Help };
     graded: boolean;
+    preview: boolean;
     runnerOk: boolean;
     runnerDetail: string | undefined;
     sandboxed: boolean;
     onMeta: (m: LessonMeta) => void;
+    onFiles: (f: LessonFile[]) => void;
     onDeleted: () => Promise<void>;
     refresh: () => Promise<void>;
     askCoach: () => void;
@@ -291,6 +295,10 @@ const Workbench = forwardRef<
   const [hints, setHints] = useState(0);
   const [solution, setSolution] = useState<{ path: string; content: string }[]>();
   const [outputOpen, setOutputOpen] = useState(Boolean(meta.lastChecks && !meta.lastChecks.passed));
+  const [preview, setPreview] = useState<{ html?: string; output?: string; building: boolean; stale: boolean }>({ building: false, stale: true });
+  const [adding, setAdding] = useState<string>();
+  const [extraFiles, setExtraFiles] = useState<LessonFile[]>([]);
+  const allFiles = [...files, ...extraFiles.filter((x) => !files.some((f) => f.path === x.path))];
   const selection = useRef("");
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const contentsRef = useRef(contents);
@@ -299,7 +307,8 @@ const Workbench = forwardRef<
   // Load every file once; tests are small, and the coach needs them all.
   useEffect(() => {
     let alive = true;
-    for (const f of files) {
+    for (const f of allFiles) {
+      if (contentsRef.current[f.path]?.loaded) continue;
       api.readFile(track, meta.id, f.path).then(
         ({ content }) => alive && setContents((c) => ({ ...c, [f.path]: c[f.path]?.loaded ? c[f.path]! : { content, saved: content, loaded: true } })),
         (e) => alive && setError(e.message),
@@ -308,7 +317,8 @@ const Workbench = forwardRef<
     return () => {
       alive = false;
     };
-  }, [files, track, meta.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, extraFiles, track, meta.id]);
 
   // First visit to a new lesson: offer (or send) the lesson-start prompts.
   useEffect(() => {
@@ -336,7 +346,7 @@ const Workbench = forwardRef<
   };
   const saveAll = async () => {
     clearTimeout(timer.current);
-    for (const f of files) if (f.editable) await saveFile(f.path);
+    for (const f of allFiles) if (f.editable) await saveFile(f.path);
   };
 
   useImperativeHandle(ref, () => ({
@@ -345,6 +355,7 @@ const Workbench = forwardRef<
   }));
 
   const edit = (path: string, value: string) => {
+    setPreview((p) => ({ ...p, stale: true }));
     setContents((c) => ({ ...c, [path]: { ...c[path]!, content: value } }));
     setSaving("idle");
     clearTimeout(timer.current);
@@ -389,13 +400,56 @@ const Workbench = forwardRef<
     }
   };
 
-  const selectTab = (t: string) => {
-    setTab(t);
-    if (t !== "brief") save(`study-coach:tab:${track}:${meta.id}`, t);
+  const buildPreview = async () => {
+    setPreview((p) => ({ ...p, building: true }));
+    try {
+      await saveAll();
+      const r = await api.preview(track, meta.id);
+      setPreview({ ...(r.html !== undefined ? { html: r.html } : {}), building: false, stale: false, ...(r.html === undefined || r.result.exitCode !== 0 ? { output: r.result.output } : {}) });
+    } catch (e) {
+      setPreview((p) => ({ ...p, building: false, output: (e as Error).message }));
+    }
   };
 
-  const dirty = files.some((f) => contents[f.path] && contents[f.path]!.content !== contents[f.path]!.saved);
-  const current = tab === "brief" ? undefined : files.find((f) => f.path === tab);
+  const selectTab = (t: string) => {
+    setTab(t);
+    if (t !== "brief" && t !== "preview") save(`study-coach:tab:${track}:${meta.id}`, t);
+    if (t === "preview" && preview.stale && !preview.building) void buildPreview();
+  };
+
+  const addFile = async (path: string) => {
+    setError(undefined);
+    try {
+      await api.newFile(track, meta.id, path);
+      setExtraFiles((x) => [...x, { path, editable: true, role: "starter", added: true }]);
+      setContents((c) => ({ ...c, [path]: { content: "", saved: "", loaded: true } }));
+      setAdding(undefined);
+      selectTab(path);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const removeFile = async (path: string) => {
+    try {
+      await api.deleteFile(track, meta.id, path);
+      setExtraFiles((x) => x.filter((f) => f.path !== path));
+      setContents((c) => {
+        const { [path]: _gone, ...rest } = c;
+        return rest;
+      });
+      void props.refresh();
+      selectTab("brief");
+      // The lesson's file list comes from the server; reload it so the tab disappears.
+      const fresh = await api.lesson(track, meta.id);
+      props.onFiles(fresh.files);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const dirty = allFiles.some((f) => contents[f.path] && contents[f.path]!.content !== contents[f.path]!.saved);
+  const current = tab === "brief" || tab === "preview" ? undefined : allFiles.find((f) => f.path === tab);
   const summary = checks ? summarize(checks) : undefined;
 
   return (
@@ -421,7 +475,7 @@ const Workbench = forwardRef<
         <button type="button" role="tab" aria-selected={tab === "brief"} className={tab === "brief" ? "on" : ""} onClick={() => selectTab("brief")}>
           Brief
         </button>
-        {files.map((f) => {
+        {allFiles.map((f) => {
           const c = contents[f.path];
           const changed = c && c.content !== c.saved;
           return (
@@ -431,6 +485,29 @@ const Workbench = forwardRef<
             </button>
           );
         })}
+        {props.preview && (
+          <button type="button" role="tab" aria-selected={tab === "preview"} className={`preview-tab ${tab === "preview" ? "on" : ""}`} onClick={() => selectTab("preview")}>
+            Preview
+          </button>
+        )}
+        {adding === undefined ? (
+          <button type="button" className="add-file" aria-label="Add a file" title="Add a file" onClick={() => setAdding("")}>
+            +
+          </button>
+        ) : (
+          <form
+            className="add-file-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (adding.trim()) void addFile(adding.trim());
+            }}
+          >
+            <input autoFocus value={adding} placeholder="src/new-file.ts" aria-label="New file path" onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setAdding(undefined)} />
+            <button type="submit" className="small-button">
+              Add
+            </button>
+          </form>
+        )}
       </div>
 
       <div className="tab-body">
@@ -486,6 +563,19 @@ const Workbench = forwardRef<
               </section>
             )}
           </div>
+        ) : tab === "preview" ? (
+          <div className="preview">
+            <div className="preview-bar">
+              <button type="button" onClick={() => void buildPreview()} disabled={preview.building}>
+                {preview.building ? "Building…" : preview.html ? "Rebuild" : "Build preview"}
+              </button>
+              <span className="small muted">{preview.building ? "Building in the lesson's container…" : preview.stale && preview.html ? "Your code changed since this build." : "Runs in an isolated frame: it can't reach this app or your session."}</span>
+            </div>
+            {preview.output && <pre className="preview-output">{preview.output.trim().slice(-4000)}</pre>}
+            {preview.html !== undefined && (
+              <iframe title={`Preview of ${meta.title}`} className="preview-frame" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock" srcDoc={preview.html} />
+            )}
+          </div>
         ) : current && contents[current.path]?.loaded ? (
           <Editor
             cacheKey={`${track}/${meta.id}/${current.path}`}
@@ -517,7 +607,12 @@ const Workbench = forwardRef<
           </button>
         )}
         <span className="spacer" />
-        {current?.editable && (
+        {current?.added && (
+          <ConfirmButton className="link small" question={`Delete ${current.path}?`} confirmLabel="Delete file" danger onConfirm={() => void removeFile(current.path)}>
+            Delete file
+          </ConfirmButton>
+        )}
+        {current?.editable && !current.added && (
           <ConfirmButton className="link small" question={`Reset ${current.path} to the starter code?`} confirmLabel="Reset" onConfirm={() => void reset(current.path)}>
             Reset file
           </ConfirmButton>

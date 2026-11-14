@@ -1,13 +1,19 @@
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
 import { trackSummary } from "./coach.ts";
 import { addUrl } from "./materials.ts";
 import { arr, enm, obj, type Provider, str, structured } from "./providers/structured.ts";
-import { lessonCommands, runner } from "./runners.ts";
+import { config } from "./config.ts";
+import { containerChecks, dockerAvailable } from "./containers.ts";
+import { layoutFor, lessonCommands, runner } from "./runners.ts";
 import { type Checks, runChecksIn } from "./sandbox.ts";
 import { skillPrompt } from "./skills.ts";
 import {
   assistByLesson,
   getMaterial,
   getTrack,
+  lessonDir,
   type LessonMeta,
 
   listLessons,
@@ -148,7 +154,9 @@ async function generatePlan(
   log(`${revising ? "Revising" : "Writing"} the plan with ${provider === "claude" ? "Claude" : "ChatGPT"}${web ? ", web search on" : ""}…`);
   const system = [
     `You design learning plans for one learner in Study Coach. The app turns each plan item into a hands-on lesson with ${runner(track.runner).label} exercises later, one at a time, so the plan sets order, scope and pacing; it does not contain the exercises.`,
-    `Lessons are checked automatically and offline with this layout: ${runner(track.runner).layout} Plan around what that allows: no third-party packages, network or services in the exercises unless the layout says so. Readings and sources can still cover the wider ecosystem.`,
+    track.runner === "container"
+      ? `Lessons run in a container where any packages can be installed: ${layoutFor(track)} Plan with real-world libraries and tools where they help the learner's goals.`
+      : `Lessons are checked automatically and offline with this layout: ${layoutFor(track)} Plan around what that allows: no third-party packages, network or services in the exercises unless the layout says so. Readings and sources can still cover the wider ecosystem.`,
     `Size the plan to the learner's level, goals and session length. For a newcomer, start from zero and move in small steps. For an expert, skip basics and go deep. Usually 6 to 15 lessons; each lesson fits one session.`,
     `The plan Markdown should cover: the goal in the learner's words, what they will be able to do at the end, the lesson sequence grouped into stages, how each stage is practised and judged, and where to go after the plan. Keep it scannable.`,
     revising
@@ -298,7 +306,7 @@ function validateLesson(track: Track, out: LessonOut): string[] {
   }
   if (size > 400_000) problems.push("the files are too large");
   if (!(out.files ?? []).some((f) => f.role === "starter")) problems.push("no starter file for the learner to work in");
-  if (r.commands([]).length && r.id !== "custom" && !(out.files ?? []).some((f) => f.role === "test")) problems.push("no test file");
+  if ((r.commands([]).length || r.id === "container") && r.id !== "custom" && !(out.files ?? []).some((f) => f.role === "test")) problems.push("no test file");
   for (const ref of out.reference ?? []) if (!out.files.some((f) => f.path === ref.path && f.role === "starter")) problems.push(`reference file ${ref.path} does not match a starter file`);
   return problems;
 }
@@ -329,7 +337,7 @@ export function lessonJob(
       const ctx = await context(user, track, { materialIds: (opts.materialIds ?? []).slice(0, 6) });
       const system = [
         `You write one hands-on practice lesson for one learner in Study Coach. The learner reads the brief, edits the starter files in a plain editor (no autocomplete) and runs the checks; a coach helps in chat under a help limit.`,
-        `Practice format: ${r.label}. File layout: ${r.layout}${r.id === "custom" ? `\nThe learner's check command, run in the lesson folder: ${track.customCommand ?? "(none set)"}` : ""}`,
+        `Practice format: ${r.id === "container" && track.environment ? track.environment.label : r.label}. File layout: ${layoutFor(track)}`,
         r.graded === "coach"
           ? `There are no automated tests. Give the learner an answer.md (role starter) with headings or numbered questions to answer, and put a model answer in reference (same path). The coach grades against the brief, so make the brief state clearly what a passing answer contains.`
           : `Starter files hold the signatures, types and TODO comments, but not the solution: they must fail the tests as handed out. Tests must be deterministic, fast (well under a few seconds), need no network and no files outside the lesson folder, and give clear failure messages that name the case, the input, the expected and the actual value. Cover the edge cases the objective implies. The reference must contain a complete, correct version of every starter file and pass every test.`,
@@ -350,6 +358,8 @@ export function lessonJob(
       let out: LessonOut | undefined;
       let checks: { reference?: Checks; starter?: Checks } = {};
       let verified = false;
+      // Container lessons keep their installed dependencies, so the learner's first check does not reinstall.
+      const genCache = join(config.dataDir, "run", `gen-cache-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
       for (let attempt = 1; attempt <= 2 && !signal.aborted; attempt++) {
         log(attempt === 1 ? `Writing the lesson with ${provider === "claude" ? "Claude" : "ChatGPT"}${web ? ", web search on" : ""}…` : "Asking for a corrected lesson…");
         out = await structured<LessonOut>({ provider, system, prompt, schema: LESSON_SCHEMA, web, signal, onActivity: log });
@@ -360,17 +370,25 @@ export function lessonJob(
           out = attempt === 2 ? undefined : out;
           continue;
         }
+        const container = r.id === "container" && track.environment;
         const commands = lessonCommands(r, out.files.map((f) => f.path), track.customCommand);
-        if (!commands.length) {
+        if (!container && !commands.length) {
           verified = r.graded === "coach";
           break;
         }
+        if (container && !(await dockerAvailable()).ok) {
+          log("Docker is not available, so the lesson cannot be verified.");
+          break;
+        }
         const scratch = await scratchLesson(out.files);
+        const overlay = Object.fromEntries(out.reference.map((f) => [f.path, f.content]));
         try {
-          log("Checking the reference solution in the sandbox…");
-          checks.reference = await runChecksIn(scratch.dir, commands, { overlay: Object.fromEntries(out.reference.map((f) => [f.path, f.content])) });
+          log(`Checking the reference solution in the ${container ? "container" : "sandbox"}…`);
+          checks.reference = container
+            ? await containerChecks(scratch.dir, genCache, container, { overlay, log })
+            : await runChecksIn(scratch.dir, commands, { overlay });
           log("Checking that the starter files do not already pass…");
-          checks.starter = await runChecksIn(scratch.dir, commands);
+          checks.starter = container ? await containerChecks(scratch.dir, genCache, container, { log }) : await runChecksIn(scratch.dir, commands);
         } finally {
           await scratch.cleanup();
         }
@@ -403,6 +421,7 @@ export function lessonJob(
         verified,
       };
       await writeLesson(user, trackId, meta, out.files, out.reference ?? []);
+      await rename(genCache, join(lessonDir(user, trackId, id), ".cache")).catch(() => rm(genCache, { recursive: true, force: true }));
       if (out.notes?.trim()) await writeNotes(user, trackId, out.notes.trim());
       log(verified ? `Lesson ${id} is ready.` : `Lesson ${id} is saved, but its tests could not be verified; tell the coach if they look wrong.`);
       return { lesson: id };
@@ -411,10 +430,8 @@ export function lessonJob(
 }
 
 async function scratchLesson(files: { path: string; content: string }[]) {
-  const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { dirname, join } = await import("node:path");
-  const dir = await mkdtemp(join(tmpdir(), "study-coach-gen-"));
+  await mkdir(join(config.dataDir, "run"), { recursive: true });
+  const dir = await mkdtemp(join(config.dataDir, "run", "gen-"));
   for (const f of files) {
     await mkdir(dirname(join(dir, f.path)), { recursive: true });
     await writeFile(join(dir, f.path), f.content);

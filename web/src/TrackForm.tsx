@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { api, type Level, type Me, type Provider, type Track, type TrackState } from "./api.ts";
+import { api, type Environment, type Level, type Me, type Provider, type Track, type TrackState } from "./api.ts";
 import { ProviderToggle } from "./ProviderToggle.tsx";
 import { ConfirmButton } from "./ui.tsx";
 import { LADDER } from "./ladder.ts";
@@ -8,8 +8,25 @@ import { LADDER } from "./ladder.ts";
 const STYLES = ["Explain first, then practise", "Practice first, explain when I'm stuck", "Lots of small examples", "Short and terse", "Ask me questions (Socratic)", "Relate it to real projects"];
 
 /** Guess a practice format from what the learner typed. */
-export function guessRunner(subject: string): string | undefined {
+export function guessRunner(subject: string, docker = false): string | undefined {
   const s = subject.toLowerCase();
+  const containers: [RegExp, string][] = [
+    [/react|vue|svelte|next\.?js|frontend|vite/, "container:react"],
+    [/\bhtml\b|\bcss\b|web page|web design|website/, "container:web"],
+    [/express|fastify|nest\.?js|\bhono\b|node.*(api|server|backend)/, "container:node"],
+    [/django|flask|fastapi|pandas|numpy|data science|machine learning|scikit|pytorch/, "container:python"],
+    [/rails|\bruby\b/, "container:ruby"],
+    [/\bphp\b|laravel|symfony/, "container:php"],
+    [/c#|\.net|dotnet|asp\.net/, "container:dotnet"],
+    [/elixir|phoenix/, "container:elixir"],
+    [/\bdeno\b/, "container:deno"],
+    [/\bbun\b/, "container:bun"],
+    [/spring|maven|junit/, "container:java"],
+  ];
+  if (docker) {
+    const hit = containers.find(([re]) => re.test(s));
+    if (hit) return hit[1];
+  }
   const table: [RegExp, string][] = [
     [/typescript|\bts\b|deno/, "typescript"],
     [/javascript|\bjs\b|node(\.js)?\b|react/, "javascript"],
@@ -40,6 +57,7 @@ export function TrackForm(props: {
   const [runnerId, setRunnerId] = useState(t?.runner ?? "");
   const [runnerTouched, setRunnerTouched] = useState(Boolean(t));
   const [customCommand, setCustomCommand] = useState(t?.customCommand ?? "");
+  const [env, setEnv] = useState<Environment | undefined>(t?.environment);
   const [goals, setGoals] = useState(t?.goals ?? "");
   const [background, setBackground] = useState(t?.background ?? "");
   const [style, setStyle] = useState(t?.style ?? "");
@@ -55,8 +73,22 @@ export function TrackForm(props: {
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
 
-  const effectiveRunner = runnerId || guessRunner(subject) || "written";
+  const guessed = guessRunner(subject, props.me.docker.ok);
+  const choice = runnerId ? (runnerId === "container" ? `container:${env?.preset ?? "custom"}` : runnerId) : guessed || "written";
+  const effectiveRunner = choice.startsWith("container:") ? "container" : choice;
+  const effectiveEnv: Environment | undefined =
+    effectiveRunner !== "container" ? undefined : runnerId === "container" ? env : props.me.environments.find((e) => `container:${e.preset}` === choice);
   const runner = props.me.runners.find((r) => r.id === effectiveRunner);
+  const pick = (value: string) => {
+    setRunnerTouched(true);
+    if (value.startsWith("container:")) {
+      const preset = props.me.environments.find((e) => `container:${e.preset}` === value);
+      setRunnerId("container");
+      setEnv(preset ? { ...preset } : { ...BLANK_ENV });
+    } else {
+      setRunnerId(value);
+    }
+  };
 
   const submit = async () => {
     setError(undefined);
@@ -67,6 +99,7 @@ export function TrackForm(props: {
       level,
       runner: effectiveRunner,
       ...(effectiveRunner === "custom" ? { customCommand } : {}),
+      ...(effectiveEnv ? { environment: effectiveEnv } : {}),
       goals,
       background,
       style,
@@ -196,21 +229,39 @@ export function TrackForm(props: {
       <div className="field-row">
         <label className="field">
           <span>Practice format</span>
-          <select
-            value={effectiveRunner}
-            onChange={(e) => {
-              setRunnerId(e.target.value);
-              setRunnerTouched(true);
-            }}
-          >
-            {props.me.runners.map((r) => (
-              <option key={r.id} value={r.id} disabled={!r.ok && r.id !== t?.runner}>
-                {r.label}
-                {r.ok ? "" : ` (not installed: ${r.detail})`}
+          <select value={choice} onChange={(e) => pick(e.target.value)}>
+            <optgroup label="Quick (no packages, starts instantly)">
+              {props.me.runners
+                .filter((r) => r.id !== "container")
+                .map((r) => (
+                  <option key={r.id} value={r.id} disabled={!r.ok && r.id !== t?.runner}>
+                    {r.label}
+                    {r.ok ? "" : ` (not installed: ${r.detail})`}
+                  </option>
+                ))}
+            </optgroup>
+            <optgroup label={props.me.docker.ok ? "Container (any packages, real projects)" : "Container (Docker not available)"}>
+              {props.me.environments.map((e) => (
+                <option key={e.preset} value={`container:${e.preset}`} disabled={!props.me.docker.ok}>
+                  {e.label}
+                </option>
+              ))}
+              <option value="container:custom" disabled={!props.me.docker.ok}>
+                Custom container: any image and commands…
               </option>
-            ))}
+            </optgroup>
           </select>
-          {runner && <span className="small muted">{runner.graded ? "You write answers; the coach grades them." : runner.id === "custom" ? "You give the command that checks your work." : "Exercises come with tests that run in a sandbox."}</span>}
+          {runner && (
+            <span className="small muted">
+              {runner.graded
+                ? "You write answers; the coach grades them."
+                : runner.id === "custom"
+                  ? "You give the command that checks your work."
+                  : runner.id === "container"
+                    ? "Lessons are real projects in a container: any packages, installed from the internet; checks run offline."
+                    : "Exercises come with tests that run in a sandbox."}
+            </span>
+          )}
         </label>
         <label className="field narrow">
           <span>Minutes per session</span>
@@ -223,6 +274,18 @@ export function TrackForm(props: {
           <input value={customCommand} placeholder="For example: ruby -Itest test/solution_test.rb" onChange={(e) => setCustomCommand(e.target.value)} />
           <span className="small muted">Runs with bash in a sandboxed copy of each lesson folder, with no network. The tools it needs must be installed on the server.</span>
         </label>
+      )}
+
+      {effectiveRunner === "container" && effectiveEnv && (
+        <EnvironmentEditor
+          env={effectiveEnv}
+          open={choice === "container:custom"}
+          onChange={(e) => {
+            setRunnerId("container");
+            setRunnerTouched(true);
+            setEnv(e);
+          }}
+        />
       )}
 
       <label className="field">
@@ -301,4 +364,83 @@ export function fileToBase64(f: File): Promise<string> {
     r.onerror = () => reject(new Error(`could not read ${f.name}`));
     r.readAsDataURL(f);
   });
+}
+
+const BLANK_ENV: Environment = {
+  label: "My environment",
+  image: "debian:stable-slim",
+  setup: "",
+  install: "",
+  check: "",
+  preview: "",
+  manifests: [],
+  layout: "",
+  syntax: "plain",
+  checkNetwork: false,
+  env: {},
+  memory: "3g",
+  cpus: 2,
+  timeoutSec: 300,
+};
+
+/** Every part of a container environment, editable; presets fill it in. */
+function EnvironmentEditor(props: { env: Environment; open: boolean; onChange: (e: Environment) => void }) {
+  const e = props.env;
+  const set = (patch: Partial<Environment>) => props.onChange({ ...e, ...patch });
+  const field = (key: "image" | "setup" | "install" | "check" | "preview" | "layout", label: string, help: string, rows = 2) => (
+    <label className="field">
+      <span>{label}</span>
+      {rows === 1 ? (
+        <input value={e[key]} onChange={(ev) => set({ [key]: ev.target.value })} />
+      ) : (
+        <textarea rows={rows} className="mono" value={e[key]} onChange={(ev) => set({ [key]: ev.target.value })} />
+      )}
+      <span className="small muted">{help}</span>
+    </label>
+  );
+  return (
+    <details className="env-editor field" open={props.open}>
+      <summary>
+        Environment: <strong>{e.label}</strong> <span className="muted small">({e.image})</span>
+      </summary>
+      <p className="small muted">
+        Each check copies the lesson into <code>/work</code> in a fresh container. <code>/cache</code> keeps the lesson's installed packages between runs. Install runs whenever a
+        manifest file changes and can reach the public internet (not your network); checks run offline unless you allow it below. Containers run as an unprivileged user with
+        memory and CPU limits.
+      </p>
+      <label className="field">
+        <span>Name</span>
+        <input value={e.label} onChange={(ev) => set({ label: ev.target.value })} />
+      </label>
+      {field("image", "Image", "Any Docker image, for example node:24, python:3.13, rust:1, golang:1.26 or ghcr.io/owner/image:tag.", 1)}
+      {field("setup", "Setup (optional, runs once as root)", "Bake extra tools into the image, for example: apt-get update && apt-get install -y graphviz.")}
+      {field("install", "Install", "Installs the lesson's packages into /cache, for example: npm install && cp -a node_modules /cache/.")}
+      <label className="field">
+        <span>Manifest files</span>
+        <input value={e.manifests.join(", ")} onChange={(ev) => set({ manifests: ev.target.value.split(/[,\s]+/).filter(Boolean) })} />
+        <span className="small muted">When one of these changes, install runs again (wildcards allowed, such as *.csproj).</span>
+      </label>
+      {field("check", "Check", "Runs the tests; exit code 0 means the lesson passes.")}
+      {field("preview", "Preview (optional)", "Builds a self-contained /out/index.html shown live in the lesson; node /opt/study/preview-inline.mjs <folder> /out/index.html inlines a built site.")}
+      {field("layout", "Notes for the lesson writer", "How lessons should be laid out: files, test framework, conventions.", 4)}
+      <div className="field-row">
+        <label className="check">
+          <input type="checkbox" checked={e.checkNetwork} onChange={(ev) => set({ checkNetwork: ev.target.checked })} />
+          <span>Allow internet during checks (public addresses only)</span>
+        </label>
+        <label className="field narrow">
+          <span>Memory</span>
+          <input value={e.memory} onChange={(ev) => set({ memory: ev.target.value })} />
+        </label>
+        <label className="field narrow">
+          <span>CPUs</span>
+          <input type="number" min={0.5} max={8} step={0.5} value={e.cpus} onChange={(ev) => set({ cpus: Number(ev.target.value) })} />
+        </label>
+        <label className="field narrow">
+          <span>Check timeout (s)</span>
+          <input type="number" min={30} max={1800} step={30} value={e.timeoutSec} onChange={(ev) => set({ timeoutSec: Number(ev.target.value) })} />
+        </label>
+      </div>
+    </details>
+  );
 }

@@ -1,5 +1,8 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { cpp } from "@codemirror/lang-cpp";
+import { css } from "@codemirror/lang-css";
+import { html } from "@codemirror/lang-html";
+import { php } from "@codemirror/lang-php";
 import { go } from "@codemirror/lang-go";
 import { java } from "@codemirror/lang-java";
 import { javascript } from "@codemirror/lang-javascript";
@@ -8,6 +11,7 @@ import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
 import { sql } from "@codemirror/lang-sql";
 import { bracketMatching, HighlightStyle, indentOnInput, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
+import { csharp, kotlin } from "@codemirror/legacy-modes/mode/clike";
 import { ruby } from "@codemirror/legacy-modes/mode/ruby";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
@@ -21,13 +25,19 @@ function language(path: string) {
   if (ext === "go") return go();
   if (ext === "py") return python();
   if (ext === "rs") return rust();
-  if (ext === "java" || ext === "kt") return java();
+  if (ext === "java") return java();
   if (["c", "h", "cpp", "cc", "hpp", "cxx"].includes(ext)) return cpp();
   if (ext === "sql") return sql();
   if (["md", "markdown", "txt"].includes(ext)) return markdown();
+  if (["xml", "csproj", "sln", "svg"].includes(ext) || path.endsWith("pom.xml")) return html();
   if (["sh", "bash", "zsh"].includes(ext)) return StreamLanguage.define(shell);
   if (ext === "toml") return StreamLanguage.define(toml);
-  if (ext === "rb") return StreamLanguage.define(ruby);
+  if (ext === "rb" || ext === "rake" || path.endsWith("Gemfile")) return StreamLanguage.define(ruby);
+  if (["html", "htm", "vue", "svelte"].includes(ext)) return html();
+  if (["css", "scss"].includes(ext)) return css();
+  if (ext === "php") return php();
+  if (ext === "cs") return StreamLanguage.define(csharp);
+  if (ext === "kt" || ext === "kts") return StreamLanguage.define(kotlin);
   if (["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "json"].includes(ext)) return javascript({ typescript: /^[mc]?tsx?$/.test(ext), jsx: ext.endsWith("x") });
   return [];
 }

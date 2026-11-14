@@ -996,6 +996,76 @@ a {
   overflow-wrap: anywhere;
 }
 
+.add-file {
+  font-family: var(--sans) !important;
+  font-size: 16px !important;
+  padding: 2px 10px;
+  color: var(--muted);
+}
+.add-file-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+}
+.add-file-form input {
+  width: 180px !important;
+  padding: 3px 8px !important;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.tabs .preview-tab {
+  font-family: var(--sans);
+  font-size: 13.5px;
+}
+.preview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--sunken);
+}
+.preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.preview-output {
+  margin: 0;
+  max-height: 40%;
+  overflow: auto;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  background: var(--bad-soft);
+}
+.preview-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+.env-editor {
+  background: var(--sunken);
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius);
+  padding: 10px 14px !important;
+}
+.env-editor summary {
+  cursor: pointer;
+  font-weight: 400;
+}
+.env-editor[open] summary {
+  margin-bottom: 10px;
+}
+textarea.mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
 /* ---------- coach ---------- */
 .coach {
   display: flex;
