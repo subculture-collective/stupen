@@ -91,3 +91,19 @@ runner first, read back `/v1/status.practice`, then enable the app in the later
 rollout issue. An old, unavailable or sandbox-disabled runner cannot execute
 practice and never causes a fallback onto a remote app host. Review this new
 untrusted-input path and the integration evidence before production activation.
+
+## Python adapter (#24)
+
+Python uses the existing tools venv (`STUDY_TOOLS_DIR/py/bin/python`). Capability
+is advertised only after that interpreter runs inside bubblewrap. Compilation
+checks every allowed Python source with `compile(..., 'exec')` without executing
+it. The maintained harness imports the declared module, calls its synchronous
+function with parsed JSON arguments, and rejects non-JSON or unsafe numeric
+returns. Tracebacks retain learner file/line locations. It never invokes pytest.
+
+The disposable fixture now provisions a Python venv. Eight focused tests pass
+with no skips, including Python local and authenticated remote runs, wrong
+answers, missing expected output, scope/syntax errors, runtime exceptions,
+timeouts, string encoding, serialization errors, nested relative imports, UTF-8 output bounds and fresh case state. The
+browser fixture also exercises Python through the same Run/result controls.
+Production deployment remains the later rollout checkpoint.

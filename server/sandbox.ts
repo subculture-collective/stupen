@@ -225,10 +225,11 @@ export function practiceCapability(): Promise<import("../shared/practiceRun.ts")
     if (!(await detect()).bwrap) return;
     const work = await mkdtemp(join(tmpdir(), "stupen-practice-probe-"));
     try {
-      if ((await practiceProcess(work, ["node", "-e", "process.exit(Number(process.versions.node.split('.')[0]) < 24 ? 1 : 0)"], 2000)).exitCode !== 0) return;
-      const runtimes = ["javascript"];
-      if ((await practiceProcess(work, [join(config.appDir, "node_modules/.bin/tsc"), "--version"], 2000)).exitCode === 0) runtimes.push("typescript");
-      return { version: 1 as const, runtimes };
+      const runtimes: string[] = [];
+      if ((await practiceProcess(work, ["node", "-e", "process.exit(Number(process.versions.node.split('.')[0]) < 24 ? 1 : 0)"], 2000)).exitCode === 0) runtimes.push("javascript");
+      if (runtimes.includes("javascript") && (await practiceProcess(work, [join(config.appDir, "node_modules/.bin/tsc"), "--version"], 2000)).exitCode === 0) runtimes.push("typescript");
+      if (await exists(join(config.toolsDir, "py/bin/python")) && (await practiceProcess(work, [join(config.toolsDir, "py/bin/python"), "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"], 2000)).exitCode === 0) runtimes.push("python");
+      return runtimes.length ? { version: 1 as const, runtimes } : undefined;
     } catch { return; }
     finally { await rm(work, { recursive: true, force: true }); }
   })();

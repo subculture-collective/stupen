@@ -772,6 +772,15 @@ try {
   holdCheck = false; releaseCheck!();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   console.log("PASS: visible Run/Submit and distinct shortcuts, canonical isolation and execution lock");
+  track.runner = "python";
+  me.runners.push({ ...me.runners[0]!, id: "python", label: "Python", syntax: "python" });
+  meta.practice!.entry = { file: "solution.py", symbol: "double" };
+  code["solution.py"] = "def double(n): return n * 2";
+  await page.reload();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await casesSaved();
+  await runButton().click();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Practice: (passed|completed)/).waitFor();
   practiceEnabled = false;
   await page.reload();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
