@@ -76,6 +76,13 @@ Run `node scripts/verify-editor.ts` against a local Vite server on port 5198 for
 browser interaction checks. Set `BASE` and `CHROMIUM` to use another URL or Chromium
 executable. The check intercepts API calls with disposable fixtures.
 
+Compatible generated TypeScript/JavaScript, Python and Go lessons may include optional
+public callable metadata and named sample cases. The generator validates the v1
+contract and only publishes it after canonical reference/starter verification.
+Invalid or incompatible metadata is omitted; existing lessons and checks still load.
+Metadata does not enable practice execution: that requires a matching future runner
+capability. The [case contract](docs/decisions/001-editable-cases.md) defines its bounds.
+
 ## Containers
 
 Each check copies the lesson into `/work` in a fresh container. `/cache` keeps the lesson's installed packages between runs.

@@ -5,6 +5,7 @@ import { trackSummary } from "./coach.ts";
 import { addUrl } from "./materials.ts";
 import { providerLabel } from "./connections.ts";
 import { arr, enm, obj, type Provider, str, structured } from "./providers/structured.ts";
+import { practicePrompt, publishedPractice } from "./practice.ts";
 import { config } from "./config.ts";
 import { containerChecks, dockerAvailable, quickChecks } from "./exec.ts";
 import { layoutFor, lessonCommands, runner } from "./runners.ts";
@@ -276,6 +277,7 @@ const LESSON_SCHEMA = obj({
   files: arr(FILE, "Every file the learner gets: starter files with TODOs, tests, support files"),
   reference: arr(obj({ path: str("Path of a starter file"), content: str("A complete correct version of that file") }), "A full reference solution: one entry per starter file"),
   sources: arr(SOURCE),
+  practice: str("JSON-encoded public callable/case metadata, or an empty string for an incompatible exercise"),
   notes: str("Updated progress notes about the learner in Markdown (strengths, gaps, what to revisit), or an empty string to keep the current notes"),
 });
 
@@ -288,6 +290,7 @@ type LessonOut = {
   reference: { path: string; content: string }[];
   sources: Source[];
   notes: string;
+  practice?: string;
 };
 
 function validateLesson(track: Track, out: LessonOut): string[] {
@@ -337,7 +340,7 @@ export function lessonJob(
       const r = runner(track.runner);
       const ctx = await context(user, track, { materialIds: (opts.materialIds ?? []).slice(0, 6) });
       const system = [
-        `You write one hands-on practice lesson for one learner in Stupen. The learner reads the brief, edits the starter files in a plain editor (no autocomplete) and runs the checks; a coach helps in chat under a help limit.`,
+        `You write one hands-on practice lesson for one learner in Stupen. The learner reads the brief, edits the starter files with autocomplete, hover documentation and diagnostics and runs the checks; a coach helps in chat under a help limit.`,
         `Practice format: ${r.id === "container" && track.environment ? track.environment.label : r.label}. File layout: ${layoutFor(track)}`,
         r.graded === "coach"
           ? `There are no automated tests. Give the learner an answer.md (role starter) with headings or numbered questions to answer, and put a model answer in reference (same path). The coach grades against the brief, so make the brief state clearly what a passing answer contains.`
@@ -345,6 +348,7 @@ export function lessonJob(
         `Size the lesson to the learner's level and one session of about ${track.sessionMinutes} minutes. The brief explains the idea briefly first (more for a newcomer, less for an expert), then states the task, shows an example or two, and says what finished looks like. Do not put the solution in the brief or hints. Use the learner's progress so far: revisit weak spots, do not repeat what they have mastered.`,
         web ? `You may search the web to check facts, APIs and current versions, and to find one or two good readings for sources. Cite only pages you found.` : `You have no web access; in sources list only resources you are certain exist, or none.`,
         `Also return updated progress notes in "notes" when the lessons-so-far show something new about the learner; otherwise return an empty string.`,
+        practicePrompt(r.id),
         SAFETY,
         skillPrompt("build", r.id),
       ].join("\n\n");
@@ -406,6 +410,7 @@ export function lessonJob(
       }
       if (!out) throw new Error("the model could not produce a valid lesson");
       const id = await nextLessonId(user, trackId, out.title);
+      const practice = publishedPractice(out.practice, r.id, out.files, verified, log);
       const meta: LessonMeta = {
         id,
         title: out.title.slice(0, 120),
@@ -420,6 +425,7 @@ export function lessonJob(
         status: "new",
         attempts: 0,
         verified,
+        ...(practice ? { practice } : {}),
       };
       await writeLesson(user, trackId, meta, out.files, out.reference ?? []);
       await rename(genCache, join(lessonDir(user, trackId, id), ".cache")).catch(() => rm(genCache, { recursive: true, force: true }));

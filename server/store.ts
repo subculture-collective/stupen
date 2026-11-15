@@ -1,6 +1,8 @@
 import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
+import type { Practice } from "../shared/practice.ts";
+import { publishedPractice } from "./practice.ts";
 import { config } from "./config.ts";
 import { cleanEnvironment, type Environment } from "./environments.ts";
 import { runner } from "./runners.ts";
@@ -65,6 +67,8 @@ export type LessonMeta = {
   passedAt?: string;
   /** True when a reference solution passed the tests before the lesson was handed out. */
   verified: boolean;
+  /** Validated public samples; execution requires a separate runner capability. */
+  practice?: Practice;
   lastChecks?: Checks;
   /** Consecutive failing check runs, for the "stuck" prompt trigger. */
   failStreak?: number;
@@ -231,9 +235,10 @@ const metaPath = (user: string, track: string, lesson: string) => join(lessonDir
 export async function listLessons(user: string, track: string): Promise<LessonMeta[]> {
   const names = (await readdir(lessonsDir(user, track)).catch(() => [] as string[])).filter((n) => /^\d{2,3}-/.test(n)).sort();
   const out: LessonMeta[] = [];
+  const t = await getTrack(user, track);
   for (const n of names) {
     const m = await readJson<LessonMeta | undefined>(metaPath(user, track, n), undefined);
-    if (m) out.push(m);
+    if (m) out.push(publicPractice(m, t.runner));
   }
   return out;
 }
@@ -241,7 +246,13 @@ export async function listLessons(user: string, track: string): Promise<LessonMe
 export async function getLesson(user: string, track: string, lesson: string): Promise<LessonMeta> {
   const m = await readJson<LessonMeta | undefined>(metaPath(user, track, lesson), undefined);
   if (!m) throw new HttpError(404, "lesson not found");
-  return m;
+  return publicPractice(m, (await getTrack(user, track)).runner);
+}
+
+function publicPractice(meta: LessonMeta, runtime: string): LessonMeta {
+  const { practice: raw, ...rest } = meta;
+  const practice = publishedPractice(raw, runtime, meta.files, meta.verified);
+  return practice ? { ...rest, practice } : rest;
 }
 
 export async function saveLessonMeta(user: string, track: string, meta: LessonMeta) {

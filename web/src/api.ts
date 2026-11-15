@@ -1,3 +1,5 @@
+import type { Practice } from "../../shared/practice.ts";
+
 /** "claude" or "codex" (the server's subscription logins, admins only) or a connection id. */
 export type Provider = string;
 
@@ -79,6 +81,7 @@ export type LessonMeta = {
   attempts: number;
   passedAt?: string;
   verified: boolean;
+  practice?: Practice;
   lastChecks?: Checks;
   failStreak?: number;
   revealedAt?: string;

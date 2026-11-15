@@ -11,6 +11,14 @@ do not infer a callable from source code. Generate and validate metadata with th
 lesson, before publishing it. Invalid metadata is omitted with a generation
 warning; it must not make an otherwise usable lesson unreadable.
 
+Generation wire format (#14): the model returns `practice` as a JSON-encoded
+string, or an empty string for incompatible exercises. This keeps the provider's
+closed response schema simple and lets validation reject duplicate keys before
+parsing loses them. Stored metadata and the lesson API use the validated object
+below, with no execution-capability flag. Publication requires successful
+canonical reference/starter verification; it does not claim the samples have
+been executed by a practice adapter.
+
 ```json
 {
   "practice": {
