@@ -229,9 +229,17 @@ export function practiceCapability(): Promise<import("../shared/practiceRun.ts")
       if ((await practiceProcess(work, ["node", "-e", "process.exit(Number(process.versions.node.split('.')[0]) < 24 ? 1 : 0)"], 2000)).exitCode === 0) runtimes.push("javascript");
       if (runtimes.includes("javascript") && (await practiceProcess(work, [join(config.appDir, "node_modules/.bin/tsc"), "--version"], 2000)).exitCode === 0) runtimes.push("typescript");
       if (await exists(join(config.toolsDir, "py/bin/python")) && (await practiceProcess(work, [join(config.toolsDir, "py/bin/python"), "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"], 2000)).exitCode === 0) runtimes.push("python");
+      const go = await practiceProcess(work, ["go", "version"], 2000);
+      if (go.exitCode === 0 && goPracticeVersion(go.stdout)) runtimes.push("go");
       return runtimes.length ? { version: 1 as const, runtimes } : undefined;
     } catch { return; }
     finally { await rm(work, { recursive: true, force: true }); }
   })();
   return practiceReady;
+}
+
+/** Practice uses the offline Go 1.24 module contract, never toolchain downloads. */
+export function goPracticeVersion(text: string): boolean {
+  const version = /go version go(\d+)\.(\d+)(?:\.|\s)/.exec(text);
+  return Boolean(version && (Number(version[1]) > 1 || Number(version[1]) === 1 && Number(version[2]) >= 24));
 }

@@ -1,6 +1,7 @@
 import { parsePracticeJson as parse, validatePracticeValue as value } from "../shared/practiceValues.ts";
 import type { Practice, PracticeSchema } from "../shared/practice.ts";
 import { runner } from "./runners.ts";
+import { GO_TYPES, goSchemaTypes } from "./practice-go.ts";
 import { safeRel } from "./util.ts";
 
 const extensions: Record<string, RegExp> = { typescript: /\.(ts|mts)$/, javascript: /\.(js|mjs)$/, python: /\.py$/, go: /\.go$/ };
@@ -85,7 +86,8 @@ export function practicePrompt(runtime: string): string {
     output: { type: "array", items: { type: "integer" } },
     cases: [{ id: "sample-1", name: "Distinct values", inputs: { nums: [2, 7], target: 9 }, expected: [0, 1] }],
   };
-  return `For a compatible function exercise, return a JSON-encoded v1 metadata object as the "practice" string (otherwise an empty string). Example shape, adapted to the actual task: ${JSON.stringify(example)}
+  const goNote = runtime === "go" ? ` For Go objects use deterministic types StupenPracticeInput0, StupenPracticeInput1, etc., and StupenPracticeOutput; object fields are Field0, Field1, etc. in schema property order, nested names append FieldN or Item. Include a read-only support file ${GO_TYPES} declaring these JSON-tagged types. The adapter regenerates this support from schemas, so declarations must match. Example support: ${goSchemaTypes(example)}` : "";
+  return `For a compatible function exercise, return a JSON-encoded v1 metadata object as the "practice" string (otherwise an empty string). Example shape, adapted to the actual task: ${JSON.stringify(example)}${goNote}
 Entry must name an editable starter file of this runtime and a named top-level synchronous function. Inputs are unique non-keyword ASCII identifiers (64 characters maximum), in positional argument order; no methods, classes, async/generators or stdin programs. Match its declared types to the schemas. State the signature, sample cases and order-sensitive array comparison in the brief. TS/JS exports the function; Python defines it at module scope; Go uses package lesson, int64 for integers, float64 for numbers, slices for arrays and named JSON-tagged structs for objects. Do not change the canonical test layout.
 Schemas are closed objects: {type:"boolean"|"string"|"integer"|"number"}, {type:"array",items:schema}, or {type:"object",properties:{name:schema},required:[every property name]}. No nulls, optional properties, unions, references or recursive schemas. Maximum nesting 8, 16 inputs, 64 object properties, 1000 array items, 8192 UTF-8 bytes per string. Only finite binary64 numbers and safe integers within ±9007199254740991.
 Include 1–10 visible cases with unique letter/digit/hyphen IDs (64 characters, no custom- prefix), names of 1–80 characters, exact named inputs and optional expected output matching the output schema. Prefer expected outputs for worked examples; absence means observation only, never a pass. False, zero, empty strings/arrays/objects are real expected values. Maximum 32 KiB per case, 64 KiB metadata. No duplicate keys or extra fields. Only public worked examples: never include reference source or private metadata. Omit practice if the lesson cannot meet this contract; autocomplete and canonical checking still work.`;

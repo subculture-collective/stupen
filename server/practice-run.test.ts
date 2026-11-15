@@ -10,12 +10,13 @@ import type { Practice } from "../shared/practice.ts";
 import { supportsPractice } from "../shared/practiceRun.ts";
 import { config } from "./config.ts";
 import { runPractice } from "./practice-adapter.ts";
+import { GO_TYPES, goSchemaTypes } from "./practice-go.ts";
 import { packPractice, practiceEqual, validatePracticePackage, validatePracticeRequest, validatePracticeRun } from "./practice-run.ts";
 import { practiceLesson } from "./practice-service.ts";
-import { practiceCapability } from "./sandbox.ts";
+import { goPracticeVersion, practiceCapability } from "./sandbox.ts";
 import { createTrack, getLesson, lessonDir, writeLesson, type LessonMeta } from "./store.ts";
 
-const sample = (runtime = "typescript"): Practice => ({ version: 1, entry: { file: runtime === "typescript" ? "solution.ts" : runtime === "python" ? "solution.py" : "solution.mjs", symbol: "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double", inputs: { n: 2 }, expected: 4 }] });
+const sample = (runtime = "typescript"): Practice => ({ version: 1, entry: { file: runtime === "typescript" ? "solution.ts" : runtime === "python" ? "solution.py" : runtime === "go" ? "solution.go" : "solution.mjs", symbol: runtime === "go" ? "Double" : "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double", inputs: { n: 2 }, expected: 4 }] });
 const payload = (code: string, runtime = "javascript") => { const p = sample(runtime); return { runtime, practice: p, request: { version: 1 as const, cases: p.cases }, files: { [p.entry.file]: Buffer.from(code).toString("base64") } }; };
 
 test("practice validates closed inputs and packages before execution", () => {
@@ -25,6 +26,8 @@ test("practice validates closed inputs and packages before execution", () => {
   for (const path of ["../escape.mjs", ".reference/solution.mjs", ".meta/x.json", "nested/.cache/x.json", "solution.test.mjs", "tests/x.mjs", "__stupen_practice.mjs"]) assert.throws(() => validatePracticePackage({ ...i, files: { ...i.files, [path]: "" } }));
   assert.throws(() => validatePracticePackage({ ...i, files: { "solution.mjs": "a".repeat(6_666_672) } }), { status: 413 });
   assert.throws(() => validatePracticePackage({ ...i, runtime: "rust" }), { status: 422 });
+  assert.equal(goPracticeVersion("go version go1.23.9 linux/amd64"), false);
+  assert.equal(goPracticeVersion("go version go1.24.13 linux/amd64"), true);
   assert.equal(supportsPractice(undefined, "typescript"), false);
   assert.equal(supportsPractice({ version: 1, runtimes: ["typescript", 2] }, "typescript"), false);
   assert.equal(supportsPractice({ version: 1, runtimes: ["typescript"] }, "typescript"), true);
@@ -110,7 +113,7 @@ async function fixtureLesson(runtime = "javascript") {
   const track = await createTrack("owner", { title: "Practice run", subject: "Functions", runner: runtime });
   const p = sample(runtime);
   const meta: LessonMeta = { id: "01-double", title: "Double", objective: "Double", brief: "", hints: [], sources: [], files: [{ path: p.entry.file, role: "starter" }, { path: "solution.test.mjs", role: "test" }], createdAt: "", status: "passed", attempts: 7, verified: true, practice: p, failStreak: 3, passedAt: "prior", lastChecks: { at: "prior", passed: true, sandboxed: true, results: [] } };
-  await writeLesson("owner", track.id, meta, [{ path: p.entry.file, content: runtime === "python" ? "def double(n): return n * 2" : "export function double(n) { return n * 2; }" }, { path: "solution.test.mjs", content: "CANONICAL TEST SENTINEL" }], [{ path: p.entry.file, content: "PROTECTED REFERENCE SENTINEL" }]);
+  await writeLesson("owner", track.id, meta, [{ path: p.entry.file, content: runtime === "go" ? "package lesson\nfunc Double(n int64) int64 { return n * 2 }" : runtime === "python" ? "def double(n): return n * 2" : "export function double(n) { return n * 2; }" }, { path: "solution.test.mjs", content: "CANONICAL TEST SENTINEL" }], [{ path: p.entry.file, content: "PROTECTED REFERENCE SENTINEL" }]);
   return { track, meta, p };
 }
 
@@ -160,7 +163,7 @@ test("RUNNER_URL transport: auth, capability refusal, malformed responses, concu
 });
 
 // An actual child agent proves that RUNNER_URL uses the same sandbox adapter.
-test("real RUNNER_URL agent executes authenticated practice with sandbox isolation", { timeout: 30_000 }, async (t) => {
+test("real RUNNER_URL agent executes authenticated practice with sandbox isolation", { timeout: 60_000 }, async (t) => {
   if (!(await practiceCapability())) {
     assert.notEqual(process.env.PRACTICE_INTEGRATION, "1", "Required real agent integration is unavailable");
     t.skip("Real sandbox unavailable; remote integration must pass in disposable fixture."); return;
@@ -186,6 +189,12 @@ test("real RUNNER_URL agent executes authenticated practice with sandbox isolati
       assert.equal((await practiceLesson("owner", py.track.id, py.meta.id, { version: 1, cases: py.p.cases })).results[0]!.status, "passed");
       assert.deepEqual(await getLesson("owner", py.track.id, py.meta.id), py.meta);
     } else assert.notEqual(process.env.PRACTICE_INTEGRATION, "1", "Python agent integration unavailable");
+    if (supportsPractice(await practiceCapability(), "go")) {
+      const go = await fixtureLesson("go");
+      const result = await practiceLesson("owner", go.track.id, go.meta.id, { version: 1, cases: go.p.cases });
+      assert.equal(result.results[0]!.status, "passed", result.results[0]!.stderr);
+      assert.deepEqual(await getLesson("owner", go.track.id, go.meta.id), go.meta);
+    } else assert.notEqual(process.env.PRACTICE_INTEGRATION, "1", "Go agent integration unavailable");
   } finally { child.kill("SIGTERM"); await once(child, "exit"); Object.assign(config, prior); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -230,4 +239,61 @@ test("real Python nested relative imports and UTF-8 output bounds", { timeout: 1
   unicode.practice.output = { type: "array", items: { type: "string" } };
   delete unicode.practice.cases[0]!.expected;
   assert.equal((await runPractice(unicode)).results[0]!.status, "completed");
+});
+
+
+test("real Go practice: compile once, fresh cases, errors, comparison and schema types", { timeout: 180_000 }, async (t) => {
+  if (!supportsPractice(await practiceCapability(), "go")) {
+    assert.notEqual(process.env.PRACTICE_INTEGRATION, "1", "Required Go integration unavailable");
+    t.skip("Go sandbox unavailable"); return;
+  }
+  const run = async (body: string) => (await runPractice(payload(`package lesson\n${body}`, "go"))).results[0]!;
+  const success = await run("func Double(n int64) int64 { return n * 2 }");
+  assert.equal(success.status, "passed", success.stderr);
+  assert.equal((await run("func Double(n int64) int64 { return n }")).status, "failed");
+  assert.equal((await run("func Double(n int64) int64 { return missing }")).status, "compile_error");
+  assert.equal((await run("func Double(n int64) int64 { panic(\"fixture\") }")).status, "runtime_error");
+  assert.equal((await run("func Double(n int64) int64 { for {} }")).status, "timeout");
+  const i = payload('package lesson\nimport "os"\nfunc Double(n int64) int64 { if _, err := os.Stat("sentinel"); err == nil { panic("state leaked") }; for _, p := range []string{".reference", ".meta", ".cache", "solution_test.go", "/etc/passwd"} { if _, err := os.Stat(p); err == nil { panic("private file") } }; if err := os.WriteFile("sentinel", []byte("case"), 0600); err != nil { panic(err) }; return n * 2 }', "go");
+  delete i.request.cases[0]!.expected;
+  i.request.cases.push({ ...i.request.cases[0]!, id: "sample-2" });
+  assert.deepEqual((await runPractice(i)).results.map(r => r.status), ["completed", "completed"]);
+  const object = payload('package lesson\nfunc Double(n StupenPracticeInput0) StupenPracticeOutput { return StupenPracticeOutput{Field0:n.Field0, Field1:n.Field1} }', "go");
+  const schema = { type: "object" as const, properties: { "": { type: "string" as const }, "a,b": { type: "array" as const, items: { type: "integer" as const } } }, required: ["", "a,b"] };
+  object.practice.inputs = [{ name: "n", schema }]; object.practice.output = schema;
+  object.practice.cases = [{ id: "sample-1", name: "Object", inputs: { n: { "": "é\n\\\"", "a,b": [0, 2] } }, expected: { "": "é\n\\\"", "a,b": [0, 2] } }];
+  object.request.cases = object.practice.cases;
+  const encoded = (await runPractice(object)).results[0]!;
+  assert.equal(encoded.status, "passed", encoded.stderr);
+  assert.match(goSchemaTypes(object.practice), /StupenPracticeInput0/);
+  assert.equal(GO_TYPES, "stupen_practice_types.go");
+});
+
+
+test("real Go output budget counts JSON values rather than Go escape expansion", { timeout: 60_000 }, async (t) => {
+  if (!supportsPractice(await practiceCapability(), "go")) {
+    assert.notEqual(process.env.PRACTICE_INTEGRATION, "1", "Required Go integration unavailable");
+    t.skip("Go sandbox unavailable"); return;
+  }
+  const i = payload('package lesson\nimport "strings"\nfunc Double(n int64) []string { s := strings.Repeat("<", 8192); return []string{s,s,s,s, `literal\\u2028`} }', "go");
+  i.practice.output = { type: "array", items: { type: "string" } }; delete i.request.cases[0]!.expected;
+  const result = (await runPractice(i)).results[0]!;
+  assert.equal(result.status, "completed", result.stderr);
+  assert.equal((result.actual as string[])[4], 'literal\\u2028');
+  i.files["solution.go"] = Buffer.from('package lesson\nimport "strings"\nfunc Double(n int64) []string { s := strings.Repeat("\\u2028", 2730); return []string{s,s,s,s} }').toString("base64");
+  assert.equal((await runPractice(i)).results[0]!.status, "completed");
+});
+
+
+test("Go snapshots regenerate schema support without changing canonical files", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "stupen-go-source-"));
+  try {
+    await writeFile(join(dir, GO_TYPES), "CANONICAL SCHEMA TYPES");
+    await writeFile(join(dir, "solution.go"), "package lesson");
+    await writeFile(join(dir, "solution_test.go"), "CANONICAL TESTS");
+    await writeFile(join(dir, "go.mod"), "module lesson\ngo 1.24\n");
+    const files = await packPractice(dir, [{ path: GO_TYPES, role: "support" }, { path: "solution.go", role: "starter" }, { path: "solution_test.go", role: "test" }, { path: "go.mod", role: "support" }]);
+    assert.deepEqual(Object.keys(files), ["solution.go", "go.mod"]);
+    assert.equal(await readFile(join(dir, GO_TYPES), "utf8"), "CANONICAL SCHEMA TYPES");
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
