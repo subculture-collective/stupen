@@ -217,7 +217,7 @@ export const api = {
   preview: (track: string, lesson: string) => call<{ html?: string; result: CheckResult }>(`${l(track, lesson)}/preview`, { method: "POST" }),
   newFile: (track: string, lesson: string, path: string, content = "") => call<{ ok: true }>(`${l(track, lesson)}/files`, json("POST", { path, content })),
   deleteFile: (track: string, lesson: string, path: string) => call<{ ok: true }>(`${l(track, lesson)}/file?path=${q(path)}`, { method: "DELETE" }),
-  solution: (track: string, lesson: string) => call<{ files: { path: string; content: string }[] }>(`${l(track, lesson)}/solution`, { method: "POST" }),
+  solution: (track: string, lesson: string) => call<{ files: { path: string; content: string }[]; revealedAt: string }>(`${l(track, lesson)}/solution`, { method: "POST" }),
   material: (track: string, id: string) => call<{ material: Material; text: string }>(`${t(track)}/materials/${q(id)}`),
   addMaterial: (track: string, body: { kind: "url" | "text" | "file"; url?: string; title?: string; text?: string; name?: string; data?: string; note?: string }) =>
     call<Material>(`${t(track)}/materials`, json("POST", body)),

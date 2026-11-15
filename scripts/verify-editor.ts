@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { publishedPractice } from "../server/practice.ts";
+import type { EditorView } from "@codemirror/view";
 import { chromium } from "playwright-core";
 import type { ChatBody, LessonMeta, Me, Track, TrackState } from "../web/src/api.ts";
 
@@ -20,10 +21,10 @@ const code: Record<string, string> = {
   "solution.test.ts": 'import { test } from "node:test";\n',
 };
 const track: Track = { id: "editor-check", title: "Editor checks", subject: "Programming", runner: "typescript", level: "beginner", goals: "Practise", background: "", style: "", sessionMinutes: 20, defaultCeiling: 0, provider: "claude", web: false, createdAt: "", updatedAt: "" };
-const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.\n\n" + "Read this lesson while coding.\n\n".repeat(80), hints: [], sources: [], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
+const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.\n\n" + "Read this lesson while coding.\n\n".repeat(80), hints: ["Try a map.", "Check the edge cases."], sources: [{ title: "Fixture reading", url: "https://example.com/lesson" }], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
 meta.practice = publishedPractice(JSON.stringify({ version: 1, entry: { file: "helpers.ts", symbol: "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double two", inputs: { n: 2 }, expected: 4 }] }), track.runner, meta.files, meta.verified)!;
 const { practice: _samples, ...legacyMeta } = meta;
-const second: LessonMeta = { ...legacyMeta, id: "02-editor", title: "Next editor lesson", objective: "Next lesson context" };
+const second: LessonMeta = { ...legacyMeta, hints: [], id: "02-editor", title: "Next editor lesson", objective: "Next lesson context" };
 const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [meta, second].map((lesson) => ({ ...lesson, help: null, lastPassed: null })), materials: [], jobs: [] };
 const me: Me = { user: "fixture", authMode: "proxy", isAdmin: false, sandbox: { sandboxed: true, detail: "Fixture" }, docker: { ok: false }, runners: [{ id: "typescript", label: "TypeScript", syntax: "typescript", layout: "", graded: null, ok: true }], environments: [], levels: [] };
 
@@ -33,6 +34,10 @@ let failSavePath: string | undefined;
 const heldSaves: (() => void)[] = [];
 const writes: { path: string; content: string }[] = [];
 const chats: ChatBody[] = [];
+let solutionRequests = 0;
+let holdSolution = false;
+let releaseSolution: (() => void) | undefined;
+const referenceText = "REVEALED FIXTURE SOLUTION\n" + "// Long reference line\n".repeat(120);
 
 await page.route("**/api/**", async (route) => {
   const url = new URL(route.request().url());
@@ -52,6 +57,12 @@ await page.route("**/api/**", async (route) => {
     return;
   }
   else if (path.endsWith("/01-editor")) data = { meta, files: meta.files.map((f) => ({ ...f, editable: f.role !== "test" })), help: null };
+  else if (path.endsWith("/solution")) {
+    solutionRequests++;
+    if (holdSolution) await new Promise<void>((resolve) => { releaseSolution = resolve; });
+    meta.revealedAt ??= "2026-11-15T22:00:00.000Z";
+    data = { files: [{ path: "solution.ts", content: referenceText }], revealedAt: meta.revealedAt };
+  }
   else if (path.endsWith("/file")) {
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON() as { path: string; content: string };
@@ -81,6 +92,8 @@ const replace = async (text: string) => {
   await page.keyboard.insertText(text);
   await page.keyboard.press("Escape");
 };
+// CodeMirror virtualizes offscreen lines; DOM innerText is not the document.
+const editorDocument = () => page.locator(".cm-content").evaluate((e) => (e as HTMLElement & { cmTile: { root: { view: EditorView } } }).cmTile.root.view.state.doc.toString());
 const waitFor = (test: () => boolean) => page.waitForFunction(test, undefined, { timeout: 20_000 });
 
 try {
@@ -108,7 +121,7 @@ try {
   await page.keyboard.insertText("// Newer edit\n");
   await page.keyboard.press("Control+s");
   assert.equal(heldSaves.length, 1, "same-file saves serialize");
-  const latest = await page.locator(".cm-content").innerText();
+  const latest = await editorDocument();
   holdSaves = false;
   heldSaves.shift()!();
   await saved();
@@ -154,9 +167,9 @@ try {
   await page.keyboard.press("Control+m");
   await page.keyboard.press("Control+Home");
   await page.keyboard.press("Tab");
-  assert.match(await page.locator(".cm-content").innerText(), /^  /, "Tab indents when focus mode is off");
+  assert.match(await editorDocument(), /^  /, "Tab indents when focus mode is off");
   await page.keyboard.press("Shift+Tab");
-  assert.match(await page.locator(".cm-content").innerText(), /^const/);
+  assert.match(await editorDocument(), /^const/);
   console.log("PASS: honest language/runtime, loaded/saving/unsaved/failure/retry status, serialized saves, cross-file autosave and keyboard focus exit");
   await page.getByRole("tab", { name: /^Problems/ }).click();
   await page.getByRole("button", { name: /solution.ts:1:.*Type 'string' is not assignable/ }).waitFor({ timeout: 30_000 });
@@ -168,7 +181,7 @@ try {
   await page.keyboard.type("toU");
   await page.getByRole("option", { name: /toUpperCase/ }).waitFor({ timeout: 30_000 });
   await page.getByRole("option", { name: /toUpperCase/ }).click();
-  assert.match(await page.locator(".cm-content").innerText(), /text.toUpperCase$/);
+  assert.match(await editorDocument(), /text.toUpperCase$/);
   await page.keyboard.press("Escape");
   await replace('const text = "hello";\ntext.toUpperCase();');
   await page.locator(".cm-line").filter({ hasText: "text.toUpperCase" }).getByText("toUpperCase", { exact: true }).hover();
@@ -182,7 +195,7 @@ try {
   await page.keyboard.press("Control+d");
   await caret("2 cursors");
   await page.keyboard.insertText("total");
-  assert.match(await page.locator(".cm-content").innerText(), /const total = 1;\nconsole.log\(total\)/);
+  assert.match(await editorDocument(), /const total = 1;\nconsole.log\(total\)/);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Control+Home");
   for (let n = 0; n < 7; n++) await page.keyboard.press("ArrowRight");
@@ -196,13 +209,67 @@ try {
 
   await replace("");
   await page.keyboard.type("(");
-  assert.equal(await page.locator(".cm-content").innerText(), "()");
+  assert.equal(await editorDocument(), "()");
   await replace("");
   await page.keyboard.type('"');
-  assert.equal(await page.locator(".cm-content").innerText(), '""');
+  assert.equal(await editorDocument(), '""');
   await replace("const valid = 2;\n");
   await page.getByRole("tab", { name: "Problems (0)", exact: true }).waitFor();
   console.log("PASS: TypeScript completion, hover, diagnostics, multiple cursors, word matches, bracket/quote closing");
+
+  const referenceTabs = page.getByRole("tablist", { name: "Lesson reference" });
+  const beforeReference = await editorDocument();
+  holdSaves = true;
+  await replace("const token = 1;\n" + "// Keep editor state\n".repeat(140) + "console.log(token);\n");
+  await page.keyboard.press("Control+Home");
+  for (let n = 0; n < 7; n++) await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Control+d");
+  await page.keyboard.press("Control+d");
+  await caret("2 cursors");
+  await page.locator(".cm-scroller").evaluate(async (e) => { await new Promise(requestAnimationFrame); e.scrollTop = 400; await new Promise(requestAnimationFrame); });
+  const codeBeforeTabs = await editorDocument();
+  const scrollBeforeTabs = await page.locator(".cm-scroller").evaluate((e) => e.scrollTop);
+  const caretBeforeTabs = await page.locator(".caret-status").innerText();
+  const editorNode = await page.locator(".cm-editor").elementHandle();
+  await page.getByRole("tab", { name: "Check output", exact: true }).click();
+  const outputBeforeTabs = await page.locator("#lesson-output").innerText();
+  await referenceTabs.getByRole("tab", { name: "Description", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).getAttribute("aria-selected"), "true");
+  await page.getByRole("button", { name: /Show a hint/ }).click();
+  await page.locator(".hint-card").filter({ hasText: "Try a map." }).waitFor();
+  await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).focus();
+  await page.keyboard.press("End");
+  assert.equal(await referenceTabs.getByRole("tab", { name: "Reference solution", exact: true }).getAttribute("aria-selected"), "true");
+  assert.equal(solutionRequests, 0, "reference tab does not fetch the solution");
+  assert.equal(await page.getByText(/REVEALED FIXTURE SOLUTION/).count(), 0);
+  await page.getByRole("button", { name: "Reveal reference solution", exact: true }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(solutionRequests, 0, "cancel does not reveal");
+  await page.getByRole("button", { name: "Reveal reference solution", exact: true }).click();
+  await page.getByRole("button", { name: "Show solution", exact: true }).click();
+  await page.getByText(/REVEALED FIXTURE SOLUTION/).waitFor();
+  assert.equal(solutionRequests, 1);
+  assert.equal(chats.length, 0, "tabs/reveal do not send coach prompts");
+  await page.getByText("solution viewed", { exact: true }).waitFor();
+  await page.locator("#reading-solution").evaluate((e) => { e.scrollTop = 400; });
+  assert.ok(await page.locator("#reading-solution").evaluate((e) => e.scrollTop) > 0);
+  assert.equal(await editorDocument(), codeBeforeTabs);
+  assert.equal(await page.locator(".cm-scroller").evaluate((e) => e.scrollTop), scrollBeforeTabs);
+  assert.equal(await page.locator(".caret-status").innerText(), caretBeforeTabs);
+  assert.equal(await editorNode!.evaluate((e) => e.isConnected), true);
+  assert.equal(await page.getByRole("tab", { name: /^solution\.ts/ }).getAttribute("aria-selected"), "true");
+  assert.equal(await page.locator("#lesson-output").innerText(), outputBeforeTabs);
+  await referenceTabs.getByRole("tab", { name: "Description", exact: true }).click();
+  await page.getByRole("link", { name: "Fixture reading", exact: true }).waitFor();
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("Control+z");
+  assert.equal(await editorDocument(), beforeReference, "undo history survives reading tabs");
+  holdSaves = false;
+  for (const release of heldSaves.splice(0)) release();
+  await page.keyboard.press("Control+s");
+  await saved();
+  console.log("PASS: reference keyboard tabs, explicit reveal/cancel, viewed state, long content and retained editor/cursors/scroll/undo/results");
 
   await openFile("solution.go");
   assert.equal(await page.locator(".file-language").innerText(), "Go");
@@ -260,6 +327,10 @@ try {
   await page.getByRole("button", { name: "Expand results panel" }).click();
   await page.getByRole("button", { name: "Collapse coach panel" }).click();
   await page.reload();
+  await referenceTabs.getByRole("tab", { name: "Reference solution", exact: true }).click();
+  await page.getByText("Reference solution already revealed for this attempt.", { exact: true }).waitFor();
+  assert.equal(solutionRequests, 1, "reload never silently reloads a revealed solution");
+  await referenceTabs.getByRole("tab", { name: "Description", exact: true }).click();
   await page.getByRole("button", { name: "Expand coach panel" }).click();
   assert.equal(await description.getAttribute("aria-valuenow"), "420");
   assert.equal(await coach.getAttribute("aria-valuenow"), "410");
@@ -270,18 +341,18 @@ try {
   await replace(Array.from({ length: 160 }, (_, i) => `# Code line ${i}`).join("\n"));
   for (const viewport of [{ width: 1153, height: 814 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport);
-    const reading = page.getByRole("region", { name: "Description", exact: true });
+    const reading = page.getByRole("region", { name: "Lesson reference", exact: true });
     const codePane = page.getByRole("region", { name: "Code", exact: true });
     const r = (await reading.boundingBox())!;
     const c = (await codePane.boundingBox())!;
     assert.ok(r.width >= 220 && c.width >= 300 && r.x + r.width <= c.x, "reading and code remain side by side");
     const toolbar = (await page.getByRole("button", { name: /Run checks/ }).boundingBox())!;
     assert.ok(toolbar.y >= 0 && toolbar.y + toolbar.height <= viewport.height);
-    await page.locator(".brief").evaluate((e) => { e.scrollTop = 500; });
-    assert.ok(await page.locator(".brief").evaluate((e) => e.scrollTop) > 0);
+    await page.locator("#reading-description").evaluate((e) => { e.scrollTop = 500; });
+    assert.ok(await page.locator("#reading-description").evaluate((e) => e.scrollTop) > 0);
     await page.locator(".cm-scroller").evaluate((e) => { e.scrollTop = 400; });
     assert.ok(await page.locator(".cm-scroller").evaluate((e) => e.scrollTop) > 0);
-    assert.equal(await page.locator(".brief").evaluate((e) => e.scrollTop), 500);
+    assert.equal(await page.locator("#reading-description").evaluate((e) => e.scrollTop), 500);
     await page.locator(".cm-scroller").evaluate((e) => { e.scrollTop = 0; });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
@@ -306,10 +377,10 @@ try {
   await openFile("solution.test.ts");
   assert.match(await page.locator(".editor-toolbar").innerText(), /Read-only/);
   await caret("Ln 1, Col 1");
-  const before = await page.locator(".cm-content").innerText();
+  const before = await editorDocument();
   await page.locator(".cm-content").click();
   await page.keyboard.type("cannot edit");
-  assert.equal(await page.locator(".cm-content").innerText(), before);
+  assert.equal(await editorDocument(), before);
   await openFile("data.json");
   await replace('{"broken": }');
   await page.getByRole("tab", { name: /^Problems/ }).click();
@@ -324,27 +395,27 @@ try {
   await page.getByRole("tab", { name: "Code", exact: true }).click();
   assert.equal(await description.count(), 0);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.getByRole("tab", { name: "Description", exact: true }).click();
-  await page.getByRole("region", { name: "Description", exact: true }).waitFor();
+  await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).click();
+  await page.getByRole("region", { name: "Lesson reference", exact: true }).waitFor();
   assert.equal(await page.locator(".cm-content").isVisible(), false);
   await page.getByRole("tab", { name: "Coach", exact: true }).click();
   await page.locator(".coach").waitFor();
   assert.equal(await draft.inputValue(), "Keep my question");
   await page.getByRole("tab", { name: "Code", exact: true }).click();
   await page.locator(".cm-content").waitFor();
-  assert.match(await page.locator(".cm-content").innerText(), /broken/);
+  assert.match(await editorDocument(), /broken/);
   await page.getByRole("tab", { name: "Code", exact: true }).focus();
   await page.keyboard.press("ArrowRight");
   assert.equal(await page.getByRole("tab", { name: "Coach", exact: true }).getAttribute("aria-selected"), "true");
   await page.keyboard.press("Home");
-  assert.equal(await page.getByRole("tab", { name: "Description", exact: true }).getAttribute("aria-selected"), "true");
+  assert.equal(await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).getAttribute("aria-selected"), "true");
   await page.getByRole("tab", { name: "Code", exact: true }).click();
   await page.screenshot({ path: "captures/editor-phone.png" });
   // Selecting a different lesson changes both the route and the coach request context.
   await page.getByRole("button", { name: "Problem List", exact: true }).click();
   await page.getByRole("link", { name: "Next editor lesson" }).click();
   await page.waitForURL(/learn\/02-editor$/);
-  await page.getByRole("tab", { name: "Description", exact: true }).click();
+  await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).click();
   await page.getByRole("heading", { name: second.title, exact: true }).waitFor();
   await page.getByRole("tab", { name: "Coach", exact: true }).click();
   assert.equal(await page.getByRole("combobox", { name: "Help limit" }).inputValue(), "0");
@@ -353,6 +424,29 @@ try {
   await page.getByText("Fixture coach response", { exact: true }).waitFor();
   assert.equal(chats.at(-1)?.lesson, second.id);
   assert.equal(chats.at(-1)?.ceiling, 0);
+  await page.getByRole("button", { name: "Problem List", exact: true }).click();
+  await page.getByRole("link", { name: "Editor lesson", exact: true }).click();
+  await page.waitForURL(/learn\/01-editor$/);
+  await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).click();
+  await referenceTabs.getByRole("tab", { name: "Reference solution", exact: true }).click();
+  holdSolution = true;
+  await page.getByRole("button", { name: "Load revealed solution", exact: true }).click();
+  await page.getByRole("button", { name: "Show solution", exact: true }).click();
+  await page.getByRole("button", { name: "Loading solution…", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Problem List", exact: true }).click();
+  await page.getByRole("link", { name: "Next editor lesson", exact: true }).click();
+  await page.waitForURL(/learn\/02-editor$/);
+  await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).click();
+  await page.getByRole("heading", { name: second.title, exact: true }).waitFor();
+  const lateResponse = page.waitForResponse((r) => r.url().endsWith("/solution"));
+  holdSolution = false;
+  releaseSolution!();
+  await (await lateResponse).finished();
+  await page.evaluate(async () => { await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); });
+  assert.equal(await page.locator(".lesson-badges").getByText("solution viewed", { exact: true }).count(), 0, "late reveal cannot update a different lesson");
+  await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).click();
+  await page.getByText(/No hints were supplied/).waitFor();
+  console.log("PASS: empty hints and delayed reveal stay scoped to the originating lesson");
   assert.deepEqual(errors, []);
   console.log("PASS: narrow layout, dark theme, no browser errors");
 } catch (error) {
