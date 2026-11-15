@@ -382,10 +382,13 @@ const Workbench = forwardRef<
   const allFiles = [...files, ...extraFiles.filter((x) => !files.some((f) => f.path === x.path))];
   const selection = useRef("");
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const codeRevision = useRef(0);
   const contentsRef = useRef(contents);
   contentsRef.current = contents;
   const updateContents = (update: (c: Record<string, FileState>) => Record<string, FileState>) => {
-    const next = update(contentsRef.current);
+    const prior = contentsRef.current;
+    const next = update(prior);
+    if (Object.keys(prior).length !== Object.keys(next).length || Object.entries(next).some(([path, f]) => f.content !== prior[path]?.content)) codeRevision.current++;
     contentsRef.current = next;
     setContents(next);
   };
@@ -830,7 +833,11 @@ const Workbench = forwardRef<
           <section className={`results-panel ${props.layout === "results" ? "maximized" : ""}`} hidden={props.layout === "code" || (!outputOpen && props.layout !== "results")} style={props.layout === "results" ? undefined : { height: resultHeight }} aria-label="Results panel">
             {props.layout !== "results" && outputOpen && <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />}
             <div id="lesson-cases" role="tabpanel" aria-label="Testcases" className="testcases" hidden={resultTab !== "cases"}>
-              <Testcases track={track} lesson={meta.id} practice={meta.practice} />
+              <Testcases track={track} lesson={meta.id} practice={meta.practice} codeVersion={JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contents[f.path]?.content])])} beforeRun={async () => {
+                await saveAll();
+                if (allFiles.some((f) => f.editable && (!contentsRef.current[f.path] || contentsRef.current[f.path]!.content !== contentsRef.current[f.path]!.saved))) throw new Error("Code changed while saving. Run the case again to use your latest edits.");
+                return JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contentsRef.current[f.path]?.content])]);
+              }} />
             </div>
             <div id="lesson-problems" role="tabpanel" aria-label="Problems" className="problems" hidden={resultTab !== "problems"}>
               {assistanceError && <p className="notice small" role="status">{assistanceError}</p>}

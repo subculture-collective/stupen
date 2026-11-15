@@ -29,6 +29,10 @@ const second: LessonMeta = { ...legacyMeta, hints: [], id: "02-editor", title: "
 const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [meta, second].map((lesson) => ({ ...lesson, help: null, lastPassed: null })), materials: [], jobs: [] };
 const me: Me = { user: "fixture", authMode: "proxy", isAdmin: false, sandbox: { sandboxed: true, detail: "Fixture" }, docker: { ok: false }, runners: [{ id: "typescript", label: "TypeScript", syntax: "typescript", layout: "", graded: null, ok: true }], environments: [], levels: [] };
 
+let runRequests = 0;
+let holdRun = false;
+let releaseRun: (() => void) | undefined;
+let practiceEnabled = true;
 let caseDrafts = initialCaseDrafts(meta.practice!);
 let failNextCaseSave = false;
 let holdCaseSave = false;
@@ -63,6 +67,16 @@ await page.route("**/api/**", async (route) => {
     return;
   }
   else if (path.endsWith("/01-editor")) data = { meta, files: meta.files.map((f) => ({ ...f, editable: f.role !== "test" })), help: null };
+  else if (path.endsWith("/run")) {
+    if (route.request().method() === "GET") data = { enabled: practiceEnabled, reason: "Fixture runner has no practice capability" };
+    else {
+      runRequests++;
+      const request = route.request().postDataJSON();
+      if (holdRun) await new Promise<void>((resolve) => { releaseRun = resolve; });
+      const c = request.cases[0];
+      data = { version: 1, sandboxed: true, durationMs: 12, results: [{ id: c.id, status: Object.hasOwn(c, "expected") ? "passed" : "completed", actual: c.inputs.n * 2, stdout: "fixture stdout", stderr: "", durationMs: 10, outputTruncated: false }] };
+    }
+  }
   else if (path.endsWith("/cases")) {
     if (route.request().method() === "PUT") {
       caseWrites++;
@@ -672,6 +686,74 @@ try {
   assert.equal(await page.evaluate(() => localStorage.getItem("study-coach:description-width")), "380");
   console.log("PASS: touch-sized focus controls, invalid stored geometry and viewport rotation recovery");
   assert.deepEqual(errors, []);
+
+  // Thin practice flow: save source before dispatch, retain code/input identity,
+  // prevent duplicates and leave graded checks/coaching untouched.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${base}/#/t/${track.id}/learn/${meta.id}`);
+  await page.reload();
+  await page.locator(".cm-content").waitFor();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await casesSaved();
+  const runButton = () => casesPanel.getByRole("button", { name: "Run selected case", exact: true });
+  await openFile("helpers.ts");
+  await replace("export function double(n: number) { return n * 2; }\n// practice edit");
+  const chatCount = chats.length;
+  holdSaves = true;
+  holdRun = true;
+  const callsBefore = runRequests;
+  await runButton().click();
+  await page.getByRole("button", { name: "Running selected case…" }).waitFor();
+  assert.equal(runRequests, callsBefore, "run waits for pending code saves");
+  assert.equal(await page.getByRole("button", { name: "Running selected case…" }).isDisabled(), true);
+  const dispatchedRun = page.waitForRequest((req) => req.url().endsWith("/run") && req.method() === "POST");
+  holdSaves = false;
+  heldSaves.splice(0).forEach((resolve) => resolve());
+  await dispatchedRun;
+  await input.fill("6");
+  holdRun = false;
+  releaseRun!();
+  const practiceResult = page.getByRole("region", { name: "Practice result", exact: true });
+  await practiceResult.getByText(/Practice: (passed|completed)/).waitFor();
+  assert.equal(runRequests, callsBefore + 1);
+  assert.match(await practiceResult.innerText(), /before your latest code or case edits/);
+  await runButton().click();
+  await practiceResult.getByText("12", { exact: true }).waitFor();
+  assert.doesNotMatch(await practiceResult.innerText(), /before your latest/);
+  holdRun = true;
+  const pendingRun = page.waitForRequest((req) => req.url().endsWith("/run") && req.method() === "POST");
+  await runButton().click();
+  await pendingRun;
+  await replace("export function double(n: number) { return n * 99; }");
+  await page.keyboard.press("Control+z");
+  holdRun = false;
+  releaseRun!();
+  await runButton().waitFor();
+  await practiceResult.getByText(/before your latest code or case edits/).waitFor();
+  await replace("export function double(n: number) { return n * 3; }");
+  await practiceResult.getByText(/before your latest code or case edits/).waitFor();
+  await page.keyboard.press("Control+z");
+  await practiceResult.getByText(/before your latest code or case edits/).waitFor();
+  // Even restoring identical text cannot certify which snapshot ran while saves
+  // and server-side capability checks were in flight.
+  await replace("export function double(n: number) { return n * 3; }");
+  await input.fill("{");
+  assert.equal(await runButton().isDisabled(), true);
+  await input.fill("6");
+  failSavePath = "helpers.ts";
+  const runCount = runRequests;
+  await runButton().click();
+  await casesPanel.getByRole("alert").filter({ hasText: "Fixture disk full" }).waitFor();
+  assert.equal(runRequests, runCount, "failed code saves cannot dispatch practice");
+  failSavePath = undefined;
+  assert.equal(chats.length, chatCount, "practice never fires grading coach triggers");
+  practiceEnabled = false;
+  await page.reload();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await casesPanel.getByText("Fixture runner has no practice capability", { exact: true }).waitFor();
+  assert.equal(await runButton().isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: /Run checks/ }).isEnabled(), true);
+  console.log("PASS: practice saves code first, bounds input, blocks duplicates, marks stale results and preserves canonical checks/coaching");
   console.log("PASS: narrow layout, dark theme, no browser errors");
 } catch (error) {
   mkdirSync("captures", { recursive: true });
