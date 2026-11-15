@@ -107,3 +107,32 @@ answers, missing expected output, scope/syntax errors, runtime exceptions,
 timeouts, string encoding, serialization errors, nested relative imports, UTF-8 output bounds and fresh case state. The
 browser fixture also exercises Python through the same Run/result controls.
 Production deployment remains the later rollout checkpoint.
+
+## Go adapter (#25)
+
+Go capability requires a sandboxed Go 1.24-or-newer toolchain. The adapter
+compiles an offline `module lesson` once, then copies that binary into a fresh
+sandbox for every case. It never runs `go test` or canonical `_test.go` files.
+Missing `go.mod` gets the maintained minimal offline module; existing manifests
+remain in the scratch snapshot. Inputs remain JSON data, never generated source.
+
+For object schemas, `goSchemaTypes` defines `StupenPracticeInput0`, subsequent
+inputs, and `StupenPracticeOutput`. Nested names append `FieldN` or `Item`;
+fields are `Field0`, `Field1`, etc. in schema property order. Generated lessons
+include these definitions in read-only support `stupen_practice_types.go` beside
+the entry file, so canonical checks can compile too. Practice excludes that
+support copy and regenerates it from validated metadata. Both generated types
+and the harness are formatted before compilation. JSON-tagged structs also
+have explicit codecs for property names that Go tags cannot represent.
+
+The result reader bounds Go's internal escaped wire representation separately
+(up to six times the public limit), then enforces 64 KiB on the parsed actual
+JSON value before returning it. This preserves valid HTML characters, Unicode
+separators and literal backslash-u strings without weakening response limits.
+
+The disposable fixture includes Go 1.24 and runs local and authenticated remote
+Go execution. Coverage includes compile/runtime errors, timeout, wrong answers,
+missing expected output, fresh case writes, protected-file exclusion, object
+schemas and encoding bounds. The browser fixture exercises Go success, runtime
+error and unavailable states through the shared controls. Production activation
+still belongs to the separate rollout issue.

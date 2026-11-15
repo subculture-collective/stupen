@@ -33,6 +33,7 @@ let runRequests = 0;
 let holdRun = false;
 let releaseRun: (() => void) | undefined;
 let practiceEnabled = true;
+let practiceFailure = false;
 let caseDrafts = initialCaseDrafts(meta.practice!);
 let failNextCaseSave = false;
 let holdCaseSave = false;
@@ -74,7 +75,7 @@ await page.route("**/api/**", async (route) => {
       const request = route.request().postDataJSON();
       if (holdRun) await new Promise<void>((resolve) => { releaseRun = resolve; });
       const c = request.cases[0];
-      data = { version: 1, sandboxed: true, durationMs: 12, results: [{ id: c.id, status: Object.hasOwn(c, "expected") ? "passed" : "completed", actual: c.inputs.n * 2, stdout: "fixture stdout", stderr: "", durationMs: 10, outputTruncated: false }] };
+      data = { version: 1, sandboxed: true, durationMs: 12, results: [{ id: c.id, status: practiceFailure ? "runtime_error" : Object.hasOwn(c, "expected") ? "passed" : "completed", ...(practiceFailure ? {} : { actual: c.inputs.n * 2 }), stdout: "fixture stdout", stderr: practiceFailure ? "solution.go:3: fixture panic" : "", durationMs: 10, outputTruncated: false }] };
     }
   }
   else if (path.endsWith("/cases")) {
@@ -756,6 +757,19 @@ try {
   await casesSaved();
   await runButton().click();
   await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Practice: (passed|completed)/).waitFor();
+  track.runner = "go";
+  me.runners.push({ ...me.runners[0]!, id: "go", label: "Go", syntax: "go" });
+  meta.practice!.entry = { file: "solution.go", symbol: "Double" };
+  code["solution.go"] = "package lesson\nfunc Double(n int64) int64 { return n * 2 }";
+  await page.reload();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await casesSaved();
+  await runButton().click();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Practice: (passed|completed)/).waitFor();
+  practiceFailure = true;
+  await runButton().click();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText("Practice: runtime error", { exact: true }).waitFor();
+  practiceFailure = false;
   practiceEnabled = false;
   await page.reload();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();

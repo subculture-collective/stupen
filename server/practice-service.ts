@@ -9,7 +9,7 @@ const running = new Set<string>();
 async function context(user: string, trackId: string, lesson: string) {
   const track = await getTrack(user, trackId);
   const meta = await getLesson(user, trackId, lesson);
-  if (!meta.practice || track.customCommand || !["typescript", "javascript", "python"].includes(track.runner)) throw new HttpError(422, "This lesson keeps ordinary checks; editable-case execution is not supported.");
+  if (!meta.practice || track.customCommand || !["typescript", "javascript", "python", "go"].includes(track.runner)) throw new HttpError(422, "This lesson keeps ordinary checks; editable-case execution is not supported.");
   return { track, practice: meta.practice };
 }
 
