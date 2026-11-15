@@ -36,7 +36,7 @@ export function validatePracticeRequest(input: unknown, p: Practice): PracticeRe
 }
 
 export function practiceFile(path: string): boolean {
-  return safeRel(path) && !path.split("/").some((s) => s.startsWith(HARNESS) || ["node_modules", "vendor", "dist", "target", "tests", "test", "spec"].includes(s)) && !/(^|[./_-])(test|tests|spec)([./_-]|$)/i.test(path) && (/\.(ts|mts|js|mjs|json)$/.test(path));
+  return safeRel(path) && !path.split("/").some((s) => s.startsWith(HARNESS) || ["node_modules", "vendor", "dist", "target", "tests", "test", "spec"].includes(s)) && !/(^|[./_-])(test|tests|spec)([./_-]|$)/i.test(path) && !/(^|\/)conftest\.py$/.test(path) && (/\.(ts|mts|js|mjs|json|py)$/.test(path));
 }
 
 /** The same explicit source allowlist is used before local execution and transport. */
@@ -70,7 +70,7 @@ export async function packPractice(dir: string, files: { path: string; role: str
 export function validatePracticePackage(input: unknown): { runtime: string; practice: Practice; request: PracticeRequest; files: Record<string, string> } {
   require(fields(input, ["runtime", "practice", "request", "files"]), "Unexpected runner practice fields.");
   const i = input as { runtime: string; practice: Practice; request: PracticeRequest; files: Record<string, string> };
-  if (!["typescript", "javascript"].includes(i.runtime)) throw new HttpError(422, "This practice runtime is not implemented.");
+  if (!["typescript", "javascript", "python"].includes(i.runtime)) throw new HttpError(422, "This practice runtime is not implemented.");
   require(fields(i.files, [], Object.keys(i.files ?? {})) && Object.keys(i.files).length <= 1000, "Invalid practice source package.");
   let total = 0;
   for (const [path, data] of Object.entries(i.files)) {

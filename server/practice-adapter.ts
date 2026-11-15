@@ -1,3 +1,4 @@
+import { pythonHarness } from "./practice-python.ts";
 import { constants } from "node:fs";
 import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,7 +14,7 @@ import { HttpError } from "./util.ts";
 
 export async function runPractice(input: unknown, signal?: AbortSignal): Promise<PracticeRun> {
   const i = validatePracticePackage(input);
-  if (!supportsPractice(await practiceCapability(), i.runtime)) throw new HttpError(503, "Practice needs Node 24 and a working bubblewrap sandbox.");
+  if (!supportsPractice(await practiceCapability(), i.runtime)) throw new HttpError(503, "Practice needs its language toolchain and a working bubblewrap sandbox.");
   const started = Date.now(), deadline = started + 60_000;
   const base = await mkdtemp(join(tmpdir(), "stupen-practice-"));
   const results: PracticeResult[] = [];
@@ -34,6 +35,8 @@ export async function runPractice(input: unknown, signal?: AbortSignal): Promise
     let build: PracticeProcess | undefined;
     if (i.runtime === "typescript") {
       build = await practiceProcess(compileDir, [join(config.appDir, "node_modules/.bin/tsc"), "--noEmit", "--strict", "--target", "ES2023", "--module", "nodenext", "--moduleResolution", "nodenext", "--allowImportingTsExtensions", "--erasableSyntaxOnly", "--noUncheckedIndexedAccess", "--skipLibCheck", "--types", "node", "--typeRoots", join(config.appDir, "node_modules/@types"), ...sources.filter((f) => /\.(ts|mts)$/.test(f))], compileDeadline - Date.now(), 16_384, signal);
+    } else if (i.runtime === "python") {
+      build = await practiceProcess(compileDir, [join(config.toolsDir, "py/bin/python"), "-c", "import pathlib,sys; [compile(pathlib.Path(p).read_text(encoding='utf-8'), p, 'exec') for p in sys.argv[1:]]", ...Object.keys(i.files).filter((f) => f.endsWith(".py"))], compileDeadline - Date.now(), 16_384, signal);
     } else {
       for (const source of sources) {
         build = await practiceProcess(compileDir, ["node", "--check", source], compileDeadline - Date.now(), 16_384, signal);
@@ -53,9 +56,10 @@ export async function runPractice(input: unknown, signal?: AbortSignal): Promise
         const work = join(base, `case-${n}`);
         await populate(work);
         try {
-          await writeFile(join(work, `${HARNESS}.mjs`), jsHarness);
+          const harness = i.runtime === "python" ? `${HARNESS}.py` : `${HARNESS}.mjs`;
+          await writeFile(join(work, harness), i.runtime === "python" ? pythonHarness : jsHarness);
           await writeFile(join(work, `${HARNESS}_input.json`), JSON.stringify({ entry: i.practice.entry, args: i.practice.inputs.map((f) => c.inputs[f.name]) }));
-          const proc = await practiceProcess(work, ["node", `${HARNESS}.mjs`], Math.min(2000, deadline - Date.now()), Math.min(16_384, Math.floor(logBudget / 6)), signal);
+          const proc = await practiceProcess(work, [i.runtime === "python" ? join(config.toolsDir, "py/bin/python") : "node", harness], Math.min(2000, deadline - Date.now()), Math.min(16_384, Math.floor(logBudget / 6)), signal);
           logBudget -= jsonBytes(proc.stdout) + jsonBytes(proc.stderr);
           const r = result(c.id, proc.timedOut ? "timeout" : proc.exitCode !== 0 ? "runtime_error" : "invalid_output", proc);
           if (!proc.timedOut && proc.exitCode === 0) {

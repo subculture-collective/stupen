@@ -15,7 +15,7 @@ import { practiceLesson } from "./practice-service.ts";
 import { practiceCapability } from "./sandbox.ts";
 import { createTrack, getLesson, lessonDir, writeLesson, type LessonMeta } from "./store.ts";
 
-const sample = (runtime = "typescript"): Practice => ({ version: 1, entry: { file: runtime === "typescript" ? "solution.ts" : "solution.mjs", symbol: "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double", inputs: { n: 2 }, expected: 4 }] });
+const sample = (runtime = "typescript"): Practice => ({ version: 1, entry: { file: runtime === "typescript" ? "solution.ts" : runtime === "python" ? "solution.py" : "solution.mjs", symbol: "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double", inputs: { n: 2 }, expected: 4 }] });
 const payload = (code: string, runtime = "javascript") => { const p = sample(runtime); return { runtime, practice: p, request: { version: 1 as const, cases: p.cases }, files: { [p.entry.file]: Buffer.from(code).toString("base64") } }; };
 
 test("practice validates closed inputs and packages before execution", () => {
@@ -24,7 +24,7 @@ test("practice validates closed inputs and packages before execution", () => {
   const i = payload("export function double(n) { return n * 2; }");
   for (const path of ["../escape.mjs", ".reference/solution.mjs", ".meta/x.json", "nested/.cache/x.json", "solution.test.mjs", "tests/x.mjs", "__stupen_practice.mjs"]) assert.throws(() => validatePracticePackage({ ...i, files: { ...i.files, [path]: "" } }));
   assert.throws(() => validatePracticePackage({ ...i, files: { "solution.mjs": "a".repeat(6_666_672) } }), { status: 413 });
-  assert.throws(() => validatePracticePackage({ ...i, runtime: "python" }), { status: 422 });
+  assert.throws(() => validatePracticePackage({ ...i, runtime: "rust" }), { status: 422 });
   assert.equal(supportsPractice(undefined, "typescript"), false);
   assert.equal(supportsPractice({ version: 1, runtimes: ["typescript", 2] }, "typescript"), false);
   assert.equal(supportsPractice({ version: 1, runtimes: ["typescript"] }, "typescript"), true);
@@ -106,11 +106,11 @@ export function double(n) {
   assert.deepEqual((await readdir(tmpdir())).filter((n) => n.startsWith("stupen-practice-")), baseline, "scratch is removed after completion, errors, timeouts and cancellation");
 });
 
-async function fixtureLesson() {
-  const track = await createTrack("owner", { title: "Practice run", subject: "Functions", runner: "javascript" });
-  const p = sample("javascript");
+async function fixtureLesson(runtime = "javascript") {
+  const track = await createTrack("owner", { title: "Practice run", subject: "Functions", runner: runtime });
+  const p = sample(runtime);
   const meta: LessonMeta = { id: "01-double", title: "Double", objective: "Double", brief: "", hints: [], sources: [], files: [{ path: p.entry.file, role: "starter" }, { path: "solution.test.mjs", role: "test" }], createdAt: "", status: "passed", attempts: 7, verified: true, practice: p, failStreak: 3, passedAt: "prior", lastChecks: { at: "prior", passed: true, sandboxed: true, results: [] } };
-  await writeLesson("owner", track.id, meta, [{ path: p.entry.file, content: "export function double(n) { return n * 2; }" }, { path: "solution.test.mjs", content: "CANONICAL TEST SENTINEL" }], [{ path: p.entry.file, content: "PROTECTED REFERENCE SENTINEL" }]);
+  await writeLesson("owner", track.id, meta, [{ path: p.entry.file, content: runtime === "python" ? "def double(n): return n * 2" : "export function double(n) { return n * 2; }" }, { path: "solution.test.mjs", content: "CANONICAL TEST SENTINEL" }], [{ path: p.entry.file, content: "PROTECTED REFERENCE SENTINEL" }]);
   return { track, meta, p };
 }
 
@@ -171,7 +171,7 @@ test("real RUNNER_URL agent executes authenticated practice with sandbox isolati
   const port = (portServer.address() as { port: number }).port;
   await new Promise<void>((resolve) => portServer.close(() => resolve()));
   const token = "synthetic-runner-token-for-fixtures-only";
-  const child = spawn(process.execPath, ["server/agent.ts"], { cwd: config.appDir, env: { PATH: process.env.PATH!, HOME: process.env.HOME!, AGENT_HOST: "127.0.0.1", AGENT_PORT: String(port), RUNNER_TOKEN: token, STUDY_DATA_DIR: join(dir, "agent") } });
+  const child = spawn(process.execPath, ["server/agent.ts"], { cwd: config.appDir, env: { PATH: process.env.PATH!, HOME: process.env.HOME!, AGENT_HOST: "127.0.0.1", AGENT_PORT: String(port), RUNNER_TOKEN: token, STUDY_DATA_DIR: join(dir, "agent"), STUDY_TOOLS_DIR: config.toolsDir } });
   child.stderr.resume();
   config.dataDir = join(dir, "app"); config.runnerUrl = `http://127.0.0.1:${port}`; config.runnerToken = token;
   try {
@@ -181,5 +181,53 @@ test("real RUNNER_URL agent executes authenticated practice with sandbox isolati
     const result = await practiceLesson("owner", track.id, meta.id, { version: 1, cases: p.cases });
     assert.equal(result.sandboxed, true); assert.equal(result.results[0]!.status, "passed");
     assert.deepEqual(await getLesson("owner", track.id, meta.id), meta);
+    if (supportsPractice(await practiceCapability(), "python")) {
+      const py = await fixtureLesson("python");
+      assert.equal((await practiceLesson("owner", py.track.id, py.meta.id, { version: 1, cases: py.p.cases })).results[0]!.status, "passed");
+      assert.deepEqual(await getLesson("owner", py.track.id, py.meta.id), py.meta);
+    } else assert.notEqual(process.env.PRACTICE_INTEGRATION, "1", "Python agent integration unavailable");
   } finally { child.kill("SIGTERM"); await once(child, "exit"); Object.assign(config, prior); await rm(dir, { recursive: true, force: true }); }
+});
+
+
+test("real Python cases: encoding, comparison, syntax, errors, timeout and isolated state", { timeout: 30_000 }, async (t) => {
+  if (!supportsPractice(await practiceCapability(), "python")) {
+    assert.notEqual(process.env.PRACTICE_INTEGRATION, "1", "Required Python integration unavailable");
+    t.skip("Python sandbox unavailable"); return;
+  }
+  const run = async (code: string) => (await runPractice(payload(code, "python"))).results[0]!;
+  assert.equal((await run("def double(n): return n * 2")).status, "passed");
+  assert.equal((await run("def double(n): return n")).status, "failed");
+  assert.equal((await run("def double(n) return n")).status, "compile_error");
+  assert.equal((await run("return 1")).status, "compile_error");
+  const thrown = await run("def double(n): raise ValueError('fixture')");
+  assert.equal(thrown.status, "runtime_error"); assert.match(thrown.stderr, /solution.py/);
+  assert.equal((await run("def double(n):\n while True: pass")).status, "timeout");
+  const invalid = await run("def double(n): return set([n])");
+  assert.equal(invalid.status, "invalid_output"); assert.match(invalid.stderr, /JSON-compatible/);
+  const i = payload("def double(n): return n * 2", "python"); delete i.request.cases[0]!.expected;
+  assert.equal((await runPractice(i)).results[0]!.status, "completed");
+  i.practice.inputs = [{ name: "n", schema: { type: "string" } }]; i.practice.output = { type: "string" };
+  i.practice.cases = [{ id: "sample-1", name: "String", inputs: { n: "é" } }];
+  i.request.cases = [{ id: "custom-1", name: "Encoding", inputs: { n: 'é\n\\"; __import__("os").system("false")' } }];
+  assert.equal((await runPractice(i)).results[0]!.actual, String(i.request.cases[0]!.inputs.n).repeat(2));
+  const isolated = payload("import os,pathlib\ndef double(n):\n assert not pathlib.Path('sentinel').exists()\n assert not any(pathlib.Path(p).exists() for p in ['.reference','.meta','.cache','solution.test.mjs','/etc/passwd'])\n assert 'FIXTURE_PRIVATE_KEY' not in os.environ\n pathlib.Path('sentinel').write_text('case')\n return n * 2", "python");
+  isolated.request.cases.push({ ...isolated.request.cases[0]!, id: "sample-2" });
+  assert.deepEqual((await runPractice(isolated)).results.map(r => r.status), ["passed", "passed"]);
+});
+
+
+test("real Python nested relative imports and UTF-8 output bounds", { timeout: 10_000 }, async (t) => {
+  if (!supportsPractice(await practiceCapability(), "python")) {
+    assert.notEqual(process.env.PRACTICE_INTEGRATION, "1", "Required Python integration unavailable");
+    t.skip("Python sandbox unavailable"); return;
+  }
+  const nested = payload("from .helper import twice\ndef double(n): return twice(n)", "python");
+  nested.practice.entry.file = "src/solution.py";
+  nested.files = { "src/solution.py": nested.files["solution.py"]!, "src/helper.py": Buffer.from("def twice(n): return n * 2").toString("base64"), "src/__init__.py": "" };
+  assert.equal((await runPractice(nested)).results[0]!.status, "passed");
+  const unicode = payload("def double(n): return [chr(233) * 4096] * 4", "python");
+  unicode.practice.output = { type: "array", items: { type: "string" } };
+  delete unicode.practice.cases[0]!.expected;
+  assert.equal((await runPractice(unicode)).results[0]!.status, "completed");
 });
