@@ -954,6 +954,26 @@ a {
   align-items: flex-start;
   flex-wrap: wrap;
 }
+.reference-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.reference-tabs button {
+  border: none;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-size: 12px;
+  padding: 6px;
+}
+.reference-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
 .tabs {
   display: flex;
   gap: 2px;

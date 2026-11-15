@@ -474,8 +474,9 @@ const routes: Route[] = [
     pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/solution$`),
     handle: async (user, m) => {
       const meta = await getLesson(user, m[1]!, m[2]!);
-      if (!meta.revealedAt) await saveLessonMeta(user, m[1]!, { ...meta, revealedAt: new Date().toISOString() });
-      return { files: await readReference(user, m[1]!, m[2]!) };
+      const revealedAt = meta.revealedAt ?? new Date().toISOString();
+      if (!meta.revealedAt) await saveLessonMeta(user, m[1]!, { ...meta, revealedAt });
+      return { files: await readReference(user, m[1]!, m[2]!), revealedAt };
     },
   },
   { method: "GET", pattern: new RegExp(`^/api/tracks/${T}/materials/(m[a-z0-9]{6,20})$`), handle: (user, m) => getMaterial(user, m[1]!, m[2]!) },

@@ -28,6 +28,9 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   const [pane, setPane] = useState<Pane>("code");
   const [lesson, setLesson] = useState<{ meta: LessonMeta; files: LessonFile[]; help: Help }>();
   const [error, setError] = useState<string>();
+  const contextKey = `${state.track.id}/${props.lessonId ?? ""}`;
+  const activeLesson = useRef(contextKey);
+  activeLesson.current = contextKey;
   const workbench = useRef<WorkbenchHandle>(null);
   const problemList = useRef<HTMLDialogElement>(null);
   const [coachWidth, setCoachWidth] = usePanelSize("study-coach:coach-width", 400, 260, 600);
@@ -42,14 +45,17 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   }, [props.lessonId, state.lessons, state.track.id]);
 
   const loadLesson = useCallback(async () => {
+    if (activeLesson.current !== contextKey) return;
     if (!props.lessonId) return setLesson(undefined);
     try {
-      setLesson(await api.lesson(state.track.id, props.lessonId));
+      const loaded = await api.lesson(state.track.id, props.lessonId);
+      if (activeLesson.current !== contextKey) return;
+      setLesson(loaded);
       setError(undefined);
     } catch (e) {
-      setError((e as Error).message);
+      if (activeLesson.current === contextKey) setError((e as Error).message);
     }
-  }, [props.lessonId, state.track.id]);
+  }, [props.lessonId, state.track.id, contextKey]);
   useEffect(() => {
     setLesson(undefined);
     void loadLesson();
@@ -97,8 +103,8 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
             runnerDetail={runner?.detail}
             runtimeLabel={runner?.label ?? state.track.runner}
             sandboxed={props.me.sandbox.sandboxed}
-            onMeta={(meta) => setLesson((l) => (l ? { ...l, meta } : l))}
-            onFiles={(files) => setLesson((l) => (l ? { ...l, files } : l))}
+            onMeta={(patch) => setLesson((l) => (activeLesson.current === contextKey && l?.meta.id === lesson.meta.id ? { ...l, meta: { ...l.meta, ...patch } } : l))}
+            onFiles={(files) => setLesson((l) => (activeLesson.current === contextKey && l?.meta.id === lesson.meta.id ? { ...l, files } : l))}
             onDeleted={async () => {
               await props.refresh();
               go({ page: "track", track: state.track.id, view: "learn" });
@@ -107,7 +113,6 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
             narrow={narrow}
             pane={pane}
             showCode={() => setPane("code")}
-            showReading={() => setPane("reading")}
             askCoach={openCoach}
           />
         )}
@@ -311,7 +316,7 @@ const Workbench = forwardRef<
     runnerDetail: string | undefined;
     runtimeLabel: string;
     sandboxed: boolean;
-    onMeta: (m: LessonMeta) => void;
+    onMeta: (m: Partial<LessonMeta>) => void;
     onFiles: (f: LessonFile[]) => void;
     onDeleted: () => Promise<void>;
     refresh: () => Promise<void>;
@@ -319,7 +324,6 @@ const Workbench = forwardRef<
     narrow: boolean;
     pane: Pane;
     showCode: () => void;
-    showReading: () => void;
   }
 >(function Workbench(props, ref) {
   const { meta, files } = props.lesson;
@@ -337,6 +341,8 @@ const Workbench = forwardRef<
   const saves = useRef(new Map<string, Promise<void>>());
   const [error, setError] = useState<string>();
   const [hints, setHints] = useState(0);
+  const [readingTab, setReadingTab] = useState<"description" | "hints" | "solution">("description");
+  const [revealing, setRevealing] = useState(false);
   const [solution, setSolution] = useState<{ path: string; content: string }[]>();
   const [outputOpen, setOutputOpen] = useState(Boolean(meta.lastChecks && !meta.lastChecks.passed));
   const [resultTab, setResultTab] = useState<"problems" | "output">("problems");
@@ -600,24 +606,6 @@ const Workbench = forwardRef<
             Reset file
           </ConfirmButton>
         )}
-        {!solution && (
-          <ConfirmButton
-            className="link small"
-            question="See the reference solution? It closes the attempt; try a hint or the coach first."
-            confirmLabel="Show solution"
-            onConfirm={() =>
-              api.solution(track, meta.id).then(
-                (r) => {
-                  setSolution(r.files);
-                  props.showReading();
-                },
-                (e) => setError(e.message),
-              )
-            }
-          >
-            Solution
-          </ConfirmButton>
-        )}
         <ConfirmButton className="link small" question="Delete this lesson and your work in it?" confirmLabel="Delete" danger onConfirm={() => api.deleteLesson(track, meta.id).then(props.onDeleted, (e) => setError(e.message))}>
           Delete
         </ConfirmButton>
@@ -629,7 +617,7 @@ const Workbench = forwardRef<
       )}
       {!props.runnerOk && !props.graded && <p className="notice small">Checks can't run on this server: {props.runnerDetail}.</p>}
       <div className="workbench-panes" style={props.narrow ? undefined : { gridTemplateColumns: `minmax(220px, min(${descriptionWidth}px, 45%)) 6px minmax(0, 1fr)` }}>
-        <section className="reading-pane" aria-label="Description" hidden={props.narrow && props.pane !== "reading"}>
+        <section className="reading-pane" aria-label="Lesson reference" hidden={props.narrow && props.pane !== "reading"}>
           <header className="lesson-head">
             <div>
               <h1>{meta.title}</h1>
@@ -647,23 +635,11 @@ const Workbench = forwardRef<
             </div>
           </header>
 
-          <div className="brief">
+          <div className="reference-tabs" role="tablist" aria-label="Lesson reference">
+            {(["description", "hints", "solution"] as const).map((id) => <button key={id} id={`reading-${id}-tab`} type="button" role="tab" tabIndex={readingTab === id ? 0 : -1} aria-selected={readingTab === id} aria-controls={`reading-${id}`} onClick={() => setReadingTab(id)} onKeyDown={(e) => tabKeys(e, ["description", "hints", "solution"], readingTab, setReadingTab)}>{id === "description" ? "Description" : id === "hints" ? "Hints" : "Reference solution"}</button>)}
+          </div>
+          <div id="reading-description" role="tabpanel" tabIndex={0} aria-labelledby="reading-description-tab" className="brief" hidden={readingTab !== "description"}>
             <Md className="md">{meta.brief}</Md>
-            {meta.hints.length > 0 && (
-              <section className="hints">
-                <h3>Hints</h3>
-                {meta.hints.slice(0, hints).map((h, i) => (
-                  <p key={i} className="hint-card">
-                    <strong>{i + 1}.</strong> {h}
-                  </p>
-                ))}
-                {hints < meta.hints.length && (
-                  <button type="button" onClick={() => setHints(hints + 1)}>
-                    {hints ? "Next hint" : "Show a hint"} ({hints + 1} of {meta.hints.length})
-                  </button>
-                )}
-              </section>
-            )}
             {meta.sources.length > 0 && (
               <section className="sources">
                 <h3>Reading</h3>
@@ -686,17 +662,44 @@ const Workbench = forwardRef<
                 </button>
               </p>
             )}
-            {solution && (
-              <section className="solution">
-                <h3>Reference solution</h3>
-                {solution.map((f) => (
-                  <div key={f.path}>
-                    <p className="small muted">{f.path}</p>
-                    <pre className="code-block">{f.content}</pre>
-                  </div>
+          </div>
+          <div id="reading-hints" role="tabpanel" tabIndex={0} aria-labelledby="reading-hints-tab" className="brief" hidden={readingTab !== "hints"}>
+            {meta.hints.length > 0 && (
+              <section className="hints">
+                <h3>Hints</h3>
+                {meta.hints.slice(0, hints).map((h, i) => (
+                  <p key={i} className="hint-card">
+                    <strong>{i + 1}.</strong> {h}
+                  </p>
                 ))}
+                {hints < meta.hints.length && (
+                  <button type="button" onClick={() => setHints(hints + 1)}>
+                    {hints ? "Next hint" : "Show a hint"} ({hints + 1} of {meta.hints.length})
+                  </button>
+                )}
               </section>
             )}
+            {!meta.hints.length && <p className="muted">No hints were supplied for this lesson. You can ask the coach for help within your help limit.</p>}
+          </div>
+          <div id="reading-solution" role="tabpanel" tabIndex={0} aria-labelledby="reading-solution-tab" className="brief" hidden={readingTab !== "solution"}>
+            <h3>Reference solution</h3>
+            {meta.revealedAt && <p className="notice small">Reference solution already revealed for this attempt.</p>}
+            {!solution && <>
+              <p>The reference stays hidden until you confirm. Viewing it closes the attempt; try a hint or the coach first.</p>
+              <ConfirmButton
+                question="See the reference solution? It closes the attempt; try a hint or the coach first."
+                confirmLabel="Show solution"
+                disabled={revealing}
+                onConfirm={() => {
+                  setRevealing(true);
+                  void api.solution(track, meta.id).then(
+                    (r) => { setSolution(r.files); props.onMeta({ revealedAt: r.revealedAt }); },
+                    (e) => setError(e.message),
+                  ).finally(() => setRevealing(false));
+                }}
+              >{revealing ? "Loading solution…" : meta.revealedAt ? "Load revealed solution" : "Reveal reference solution"}</ConfirmButton>
+            </>}
+            {solution?.map((f) => <div key={f.path}><p className="small muted">{f.path}</p><pre className="code-block">{f.content}</pre></div>)}
           </div>
         </section>
         {!props.narrow && <ResizeHandle label="Resize description panel" value={descriptionWidth} min={220} max={640} onChange={setDescriptionWidth} />}
