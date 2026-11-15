@@ -5,9 +5,9 @@ import { go, href } from "./App.tsx";
 import { Coach, fireTrigger, type PromptVars } from "./Coach.tsx";
 import { type Caret, Editor, fileLanguage } from "./Editor.tsx";
 import { summarize } from "./checks.ts";
-import { Testcases } from "./Testcases.tsx";
+import { Testcases, type CaseControls, type TestcasesHandle } from "./Testcases.tsx";
 import { Md } from "./Md.tsx";
-import { ConfirmButton, LockIcon, RUN_KEY, StatusIcon, tabKeys, useMedia } from "./ui.tsx";
+import { ConfirmButton, LockIcon, RUN_KEY, PRACTICE_KEY, StatusIcon, tabKeys, useMedia } from "./ui.tsx";
 import { ResizeHandle } from "./ResizeHandle.tsx";
 import { LanguageService, typedFile, type CodeProblem } from "./languageService.ts";
 import { checkProblems, location as problemLocation } from "./problems.ts";
@@ -359,6 +359,10 @@ const Workbench = forwardRef<
   const [contents, setContents] = useState<Record<string, FileState>>({});
   const [checks, setChecks] = useState<Checks | undefined>(meta.lastChecks);
   const [running, setRunning] = useState(false);
+  const [practiceBusy, setPracticeBusy] = useState(false);
+  const [practiceState, setPracticeState] = useState<CaseControls>({ enabled: false, reason: "Loading practice inputs…" });
+  const casesRef = useRef<TestcasesHandle>(null);
+  const execution = useRef<"practice" | "submit" | undefined>(undefined);
   const [caret, setCaret] = useState<Caret>();
   const saves = useRef(new Map<string, Promise<void>>());
   const [error, setError] = useState<string>();
@@ -495,25 +499,21 @@ const Workbench = forwardRef<
   };
 
   const run = async () => {
-    if (running) return;
-    setError(undefined);
-    if (props.graded) {
-      try {
-        await saveAll();
-        fireTrigger("grade");
-        props.askCoach();
-      } catch (e) {
-        setError((e as Error).message);
-      }
-      return;
-    }
+    if (execution.current || (!props.graded && !props.runnerOk)) return;
+    execution.current = "submit";
     setRunning(true);
+    setError(undefined);
     try {
       await saveAll();
-      const checkedContent = JSON.stringify(Object.entries(contentsRef.current).map(([path, f]) => [path, f.content]));
+      if (props.graded) {
+        fireTrigger("grade");
+        props.askCoach();
+        return;
+      }
+      const checkedRevision = codeRevision.current;
       const r = await api.check(track, meta.id);
       setChecks(r.checks);
-      setChecksStale(checkedContent !== JSON.stringify(Object.entries(contentsRef.current).map(([path, f]) => [path, f.content])));
+      setChecksStale(checkedRevision !== codeRevision.current);
       props.onMeta(r.meta);
       setOutputOpen(!r.checks.passed);
       if (!r.checks.passed) setResultTab("problems");
@@ -523,11 +523,8 @@ const Workbench = forwardRef<
       } else if ((r.meta.failStreak ?? 0) >= 3 && (r.meta.failStreak ?? 0) % 3 === 0) fireTrigger("stuck", vars);
       else fireTrigger("check-fail", vars);
       void props.refresh();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setRunning(false);
-    }
+    } catch (e) { setError((e as Error).message); }
+    finally { execution.current = undefined; setRunning(false); }
   };
 
   const reset = async (path: string) => {
@@ -611,8 +608,11 @@ const Workbench = forwardRef<
   return (
     <article className="workbench" aria-label={meta.title}>
       <div className="actions">
-        <button type="button" className="primary" onClick={() => void run()} disabled={running || (!props.graded && !props.runnerOk)} title={props.runnerOk ? undefined : props.runnerDetail}>
-          {running ? "Running…" : props.graded ? "Submit for grading" : "Run checks"}
+        {!props.graded && <button type="button" aria-label="Run" aria-describedby="practice-availability" onClick={() => casesRef.current?.run()} disabled={running || practiceBusy || !practiceState.enabled}>
+          {practiceBusy ? "Running…" : "Run"} <kbd>{PRACTICE_KEY}</kbd>
+        </button>}
+        <button type="button" className="primary" aria-label={props.graded ? "Submit for grading" : "Submit"} onClick={() => void run()} disabled={running || practiceBusy || (!props.graded && !props.runnerOk)}>
+          {running ? "Submitting…" : props.graded ? "Submit for grading" : "Submit"}
           {!running && <kbd>{RUN_KEY}</kbd>}
         </button>
         {summary && (
@@ -636,6 +636,8 @@ const Workbench = forwardRef<
           Delete
         </ConfirmButton>
       </div>
+      {!props.graded && <p id="practice-availability" className="small muted" role="status">{practiceState.reason || "Run tries the selected case without grading. Submit judges the original lesson checks."}</p>}
+      {!props.graded && !props.runnerOk && <p className="small muted" role="status">Submit unavailable: {props.runnerDetail ?? "the runner is unavailable."}</p>}
       {error && (
         <p className="error small" role="alert">
           {error}
@@ -739,7 +741,7 @@ const Workbench = forwardRef<
             {current && !current.editable && <span className="pill">Read-only</span>}
             <details className="keyboard-help">
               <summary>Keyboard help</summary>
-              <p id="editor-help">Ctrl/Cmd+S saves the active file. Ctrl/Cmd+Enter {props.graded ? "submits for coach grading" : "runs checks"}. Ctrl+Space opens completion; Enter accepts. Ctrl/Cmd+D selects the next matching word; Alt-drag selects a rectangle. Tab indents and Shift+Tab unindents. Press Escape, then Tab to leave the editor. Ctrl+M (Option+Shift+M on macOS) toggles Tab focus mode. Hover over a symbol for documentation.</p>
+              <p id="editor-help">Ctrl/Cmd+S saves the active file. Ctrl/Cmd+Enter {props.graded ? "submits for coach grading" : "submits canonical checks"}. Ctrl/Cmd+Shift+Enter runs the selected practice case when available. Ctrl+Space opens completion; Enter accepts. Ctrl/Cmd+D selects the next matching word; Alt-drag selects a rectangle. Tab indents and Shift+Tab unindents. Press Escape, then Tab to leave the editor. Ctrl+M (Option+Shift+M on macOS) toggles Tab focus mode. Hover over a symbol for documentation.</p>
             </details>
           </div>
           <div className="tabs" role="tablist" aria-label="Lesson" hidden={props.layout === "results"}>
@@ -808,6 +810,7 @@ const Workbench = forwardRef<
                 onChange={(v) => edit(current.path, v)}
                 onSave={() => void saveFile(current.path).catch(() => {})}
                 onRun={() => void run()}
+                onPractice={() => casesRef.current?.run()}
                 onSelect={(t) => (selection.current = t)}
                 onCaret={setCaret}
               />
@@ -821,7 +824,7 @@ const Workbench = forwardRef<
             <span className="spacer" />
             {current && caret && <span className="caret-status" aria-label="Caret position">Ln {caret.line}, Col {caret.column}{caret.cursors > 1 ? ` · ${caret.cursors} cursors` : ""}</span>}
           </div>
-          {saveError && <p className="error small" role="alert" hidden={props.layout === "results"}>{contents[saveError.path]?.saveError} — Ctrl/Cmd+S retries the active file; Run checks saves all files first.</p>}
+          {saveError && <p className="error small" role="alert" hidden={props.layout === "results"}>{contents[saveError.path]?.saveError} — Ctrl/Cmd+S retries the active file; Run and Submit save all files first.</p>}
           <div className="results-toolbar" role="tablist" aria-label="Results" hidden={props.layout === "code"}>
             <button type="button" role="tab" aria-selected={resultTab === "cases" && (outputOpen || props.layout === "results")} aria-controls="lesson-cases" onClick={() => { setResultTab("cases"); if (props.layout !== "results") setOutputOpen(true); }}>Testcases</button>
             <button type="button" role="tab" aria-selected={resultTab === "problems" && (outputOpen || props.layout === "results")} aria-controls="lesson-problems" onClick={() => { setResultTab("problems"); if (props.layout !== "results") setOutputOpen(true); }}>Problems ({problems.length})</button>
@@ -833,7 +836,7 @@ const Workbench = forwardRef<
           <section className={`results-panel ${props.layout === "results" ? "maximized" : ""}`} hidden={props.layout === "code" || (!outputOpen && props.layout !== "results")} style={props.layout === "results" ? undefined : { height: resultHeight }} aria-label="Results panel">
             {props.layout !== "results" && outputOpen && <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />}
             <div id="lesson-cases" role="tabpanel" aria-label="Testcases" className="testcases" hidden={resultTab !== "cases"}>
-              <Testcases track={track} lesson={meta.id} practice={meta.practice} codeVersion={JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contents[f.path]?.content])])} beforeRun={async () => {
+              <Testcases ref={casesRef} onState={setPracticeState} reportError={setError} acquire={() => { if (execution.current) return false; execution.current = "practice"; setPracticeBusy(true); setOutputOpen(true); setResultTab("cases"); props.showCode(); if (props.layout === "code" || props.layout === "reading") props.changeLayout("split"); return true; }} release={() => { execution.current = undefined; setPracticeBusy(false); }} track={track} lesson={meta.id} practice={meta.practice} codeVersion={JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contents[f.path]?.content])])} beforeRun={async () => {
                 await saveAll();
                 if (allFiles.some((f) => f.editable && (!contentsRef.current[f.path] || contentsRef.current[f.path]!.content !== contentsRef.current[f.path]!.saved))) throw new Error("Code changed while saving. Run the case again to use your latest edits.");
                 return JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contentsRef.current[f.path]?.content])]);
@@ -841,7 +844,7 @@ const Workbench = forwardRef<
             </div>
             <div id="lesson-problems" role="tabpanel" aria-label="Problems" className="problems" hidden={resultTab !== "problems"}>
               {assistanceError && <p className="notice small" role="status">{assistanceError}</p>}
-              {!problems.length && <p className="small muted">No problems reported. Run checks for compiler and test results.</p>}
+              {!problems.length && <p className="small muted">No problems reported. Submit for compiler and test results.</p>}
               {problems.map((p, i) => {
                 const file = sourceFiles.find((f) => f.path === p.path);
                 const at = file ? problemLocation(file.content, p.from) : undefined;
@@ -852,7 +855,7 @@ const Workbench = forwardRef<
               })}
             </div>
             <section id="lesson-output" role="tabpanel" className="output" aria-label="Check output" hidden={resultTab !== "output"}>
-              {!checks && <p className="small muted">Run checks to see their output.</p>}
+              {!checks && <p className="small muted">Submit to see their output.</p>}
               {checksStale && checks && <p className="small muted">These results are from before your latest edits.</p>}
               {checks && <>
               {!checks.sandboxed && <p className="notice small">These checks ran without the sandbox.</p>}

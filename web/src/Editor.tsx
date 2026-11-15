@@ -68,7 +68,7 @@ const cache = new Map<string, { state: EditorState; scroll: number }>();
 const assistance = new Compartment();
 
 export type Caret = { line: number; column: number; cursors: number };
-type Handlers = { onChange: (v: string) => void; onSave: () => void; onRun: () => void; onSelect?: ((text: string) => void) | undefined; onCaret?: ((caret: Caret) => void) | undefined };
+type Handlers = { onChange: (v: string) => void; onSave: () => void; onRun: () => void; onPractice?: (() => void) | undefined; onSelect?: ((text: string) => void) | undefined; onCaret?: ((caret: Caret) => void) | undefined };
 
 /**
  * The live callbacks for each area and file. A cached state looks its callbacks
@@ -76,10 +76,10 @@ type Handlers = { onChange: (v: string) => void; onSave: () => void; onRun: () =
  * never the component that first created it.
  */
 const handlerFor = new Map<string, Handlers>();
-const call = (key: string, name: "onChange" | "onSave" | "onRun", arg?: string) => {
+const call = (key: string, name: "onChange" | "onSave" | "onRun" | "onPractice", arg?: string) => {
   const h = handlerFor.get(key);
   if (name === "onChange") h?.onChange(arg ?? "");
-  else h?.[name]();
+  else h?.[name]?.();
 };
 
 function reportSelection(key: string, state: EditorState) {
@@ -167,6 +167,7 @@ function createState(key: string, doc: string, path: string, readOnly: boolean, 
       }),
       keymap.of([
         { key: "Mod-s", preventDefault: true, run: () => (call(key, "onSave"), true) },
+        { key: "Mod-Shift-Enter", preventDefault: true, run: () => (call(key, "onPractice"), true) },
         { key: "Mod-Enter", preventDefault: true, run: () => (call(key, "onRun"), true) },
         { key: "Mod-d", preventDefault: true, run: selectNextOccurrence },
         indentWithTab,
@@ -199,7 +200,7 @@ export function Editor(props: {
   onDiagnostics: (path: string, problems: CodeProblem[]) => void;
   onChange: (value: string) => void;
   onSave: () => void;
-  onRun: () => void;
+  onRun: () => void; onPractice?: (() => void) | undefined;
   /** Called with the selected text whenever the selection changes. */
   onSelect?: (text: string) => void;
   onCaret?: (caret: Caret) => void;
@@ -210,7 +211,7 @@ export function Editor(props: {
   const jumped = useRef(false);
   const current = useRef(props);
   current.current = props;
-  handlerFor.set(props.cacheKey, { onChange: props.onChange, onSave: props.onSave, onRun: props.onRun, onSelect: props.onSelect, onCaret: props.onCaret });
+  handlerFor.set(props.cacheKey, { onChange: props.onChange, onSave: props.onSave, onRun: props.onRun, onPractice: props.onPractice, onSelect: props.onSelect, onCaret: props.onCaret });
 
   // One view for the component's lifetime; its state is swapped per file.
   useEffect(() => {

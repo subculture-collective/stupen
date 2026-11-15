@@ -186,6 +186,7 @@ export function ThemeIcon(props: { theme: "system" | "light" | "dark" }) {
 
 export const coarsePointer = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+export const PRACTICE_KEY = isMac ? "⌘⇧↵" : "Ctrl+Shift+Enter";
 export const RUN_KEY = isMac ? "⌘↵" : "Ctrl+Enter";
 export const SAVE_KEY = isMac ? "⌘S" : "Ctrl+S";
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { CASE_LIMIT, jsonBytes, parseCaseDrafts, sampleDraft, validateCaseDrafts, type CaseDraft, type CaseDrafts } from "../../shared/cases.ts";
 import type { PracticeRun } from "../../shared/practiceRun.ts";
 import type { Practice } from "../../shared/practice.ts";
@@ -9,7 +9,9 @@ import { tabKeys } from "./ui.tsx";
 // Only promises live here; learner drafts are not cached across accounts.
 const pendingSaves = new Map<string, Promise<void>>();
 
-export function Testcases({ track, lesson, practice, codeVersion, beforeRun }: { track: string; lesson: string; practice: Practice | undefined; codeVersion: string; beforeRun: () => Promise<string> }) {
+export type CaseControls = { enabled: boolean; reason: string };
+export type TestcasesHandle = { run: () => void };
+export const Testcases = forwardRef<TestcasesHandle, { track: string; lesson: string; practice: Practice | undefined; codeVersion: string; beforeRun: () => Promise<string>; acquire: () => boolean; release: () => void; onState: (state: CaseControls) => void; reportError: (message: string | undefined) => void }>(function Testcases({ track, lesson, practice, codeVersion, beforeRun, acquire, release, onState, reportError }, ref) {
   const [capability, setCapability] = useState<{ enabled: boolean; reason: string }>();
   const [run, setRun] = useState<{ result: PracticeRun; code: string; input: string }>();
   const [runError, setRunError] = useState<string>();
@@ -30,6 +32,13 @@ export function Testcases({ track, lesson, practice, codeVersion, beforeRun }: {
   const saving = useRef(false);
   const latest = useRef<CaseDrafts | undefined>(undefined);
   const saved = useRef<CaseDrafts | undefined>(undefined);
+  const executeRef = useRef<(() => void) | undefined>(undefined);
+  useImperativeHandle(ref, () => ({ run: () => executeRef.current?.() }));
+  useEffect(() => {
+    const valid = draft && practice && parseCaseDrafts(draft, practice).cases;
+    const reason = !practice ? "Run needs compatible generated case metadata. Submit still uses the original checks." : !draft ? "Loading practice inputs…" : !valid ? "Fix invalid case inputs before Run. Submit still uses the original checks." : !capability?.enabled ? capability?.reason ?? "Checking practice runner…" : "";
+    onState({ enabled: Boolean(valid && capability?.enabled), reason });
+  }, [draft, practice, capability, onState]);
   const metadata = JSON.stringify(practice);
   const saveKey = `${track}/${lesson}`;
   useEffect(() => {
@@ -46,6 +55,7 @@ export function Testcases({ track, lesson, practice, codeVersion, beforeRun }: {
     return () => { active = false; };
   }, [track, lesson, metadata, reload]);
 
+  executeRef.current = undefined;
   if (!practice) return <p className="small muted">Editable cases need compatible generated sample metadata. This lesson keeps its ordinary checks or coach grading.</p>;
   if (!draft) return <div role="status">{loadingError ? <><p className="error">{loadingError}</p><button type="button" onClick={() => setReload(reload + 1)}>Retry loading cases</button></> : "Loading cases…"}</div>;
 
@@ -98,17 +108,19 @@ export function Testcases({ track, lesson, practice, codeVersion, beforeRun }: {
   const selected = validation.cases?.find((c) => c.id === current.id);
   const inputVersion = JSON.stringify(selected ?? current);
   const execute = async () => {
-    if (inFlight.current || !selected || !capability?.enabled) return;
+    if (inFlight.current || !selected || !capability?.enabled || !acquire()) return;
     inFlight.current = true;
     setRunning(true);
     setRunError(undefined);
+    reportError(undefined);
     try {
       const code = await beforeRun();
       const result = await api.runCase(track, lesson, { version: 1, cases: [selected] });
       setRun({ result, code, input: inputVersion });
-    } catch (e) { setRunError((e as Error).message); }
-    finally { inFlight.current = false; setRunning(false); }
+    } catch (e) { const message = (e as Error).message; setRunError(message); reportError(message); }
+    finally { inFlight.current = false; setRunning(false); release(); }
   };
+  executeRef.current = () => { void execute(); };
   return <>
     <div className="case-controls">
       <div role="tablist" aria-label="Test cases" className="case-tabs">
@@ -141,9 +153,9 @@ export function Testcases({ track, lesson, practice, codeVersion, beforeRun }: {
       {validation.error && <p className="error small" role="alert">{validation.error}</p>}
       <p className="small" role="status">{status}. {!validation.cases && "Invalid inputs cannot run."}</p>
       {saveError && <div className="error small" role="alert">{saveError} <button type="button" onClick={() => update(draft)}>Retry saving cases</button></div>}
-      <button type="button" disabled={running || !selected || !capability?.enabled} onClick={() => void execute()}>{running ? "Running selected case…" : "Run selected case"}</button>
+      {running && <p role="status">Running selected case…</p>}
       {!capability?.enabled && <p className="small muted">{capability?.reason ?? "Checking practice runner…"}</p>}
-      <p className="small muted">Practice runs do not grade the lesson. Run checks uses the lesson’s original tests.</p>
+      <p className="small muted">Practice runs do not grade the lesson. Submit uses the lesson’s original tests.</p>
       {runError && <p className="error small" role="alert">{runError}</p>}
       {run && <div aria-label="Practice result" role="region" aria-live="polite">
         {(run.code !== codeVersion || run.input !== inputVersion) && <p className="notice small">This practice result is from before your latest code or case edits.</p>}
@@ -157,4 +169,4 @@ export function Testcases({ track, lesson, practice, codeVersion, beforeRun }: {
       </div>}
     </div>
   </>;
-}
+});
