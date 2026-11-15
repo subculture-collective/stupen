@@ -28,6 +28,22 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
+      - name: Install browser for workspace qualification
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Qualify workspace at root and /app
+        run: |
+          node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 5198 --strictPort > /tmp/stupen-preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid"' EXIT
+          node -e 'const u="http://127.0.0.1:5198"; for(let n=0;n<100;n++){try{if((await fetch(u)).ok)process.exit(0)}catch{} await new Promise(r=>setTimeout(r,100))}process.exit(1)'
+          BASE=http://127.0.0.1:5198 node scripts/verify-editor.ts
+          kill "$preview_pid"
+          wait "$preview_pid" || true
+          BASE_PATH=/app pnpm build
+          BASE_PATH=/app node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 5198 --strictPort > /tmp/stupen-preview.log 2>&1 &
+          preview_pid=$!
+          node -e 'const u="http://127.0.0.1:5198/app/"; for(let n=0;n<100;n++){try{if((await fetch(u)).ok)process.exit(0)}catch{} await new Promise(r=>setTimeout(r,100))}process.exit(1)'
+          BASE=http://127.0.0.1:5198/app node scripts/verify-editor.ts
       - name: Real local and remote practice sandbox integration
         run: |
           docker build -t stupen-practice-fixture:ci -f scripts/practice-fixture.Dockerfile .

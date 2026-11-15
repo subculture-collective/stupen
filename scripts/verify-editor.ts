@@ -1,6 +1,6 @@
 /** Browser conformance check against a local Vite server, with isolated lesson API fixtures. */
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import type { Submission } from "../shared/submissions.ts";
 import { initialCaseDrafts, validateCaseDrafts } from "../shared/cases.ts";
 import { publishedPractice } from "../server/practice.ts";
@@ -10,7 +10,7 @@ import type { ChatBody, LessonMeta, Me, Track, TrackState } from "../web/src/api
 
 const base = process.env.BASE ?? "http://127.0.0.1:5198";
 const prefix = new URL(base).pathname.replace(/\/$/, "");
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/google/chrome/chrome", args: ["--no-sandbox"] });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? (existsSync("/opt/google/chrome/chrome") ? "/opt/google/chrome/chrome" : chromium.executablePath()), args: ["--no-sandbox"] });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors: string[] = [];
 page.on("pageerror", (error) => errors.push(error.message));
@@ -44,6 +44,7 @@ let practiceEnabled = true;
 let practiceFailure = false;
 let practiceStatus: string | undefined;
 let failPractice = false;
+let expiredSession = false;
 let caseDrafts = initialCaseDrafts(meta.practice!);
 let failNextCaseSave = false;
 let holdCaseSave = false;
@@ -87,6 +88,7 @@ await page.route("**/api/**", async (route) => {
     if (route.request().method() === "GET") data = { enabled: practiceEnabled, reason: "Fixture runner has no practice capability" };
     else {
       runRequests++;
+      if (expiredSession) { await route.fulfill({ status: 401, json: { error: "Fixture session expired" } }); return; }
       if (failPractice) { await route.fulfill({ status: 503, json: { error: "Fixture runner unavailable" } }); return; }
       const request = route.request().postDataJSON();
       if (holdRun) await new Promise<void>((resolve) => { releaseRun = resolve; });
@@ -109,6 +111,7 @@ await page.route("**/api/**", async (route) => {
       data = { ok: true };
     } else data = caseDrafts;
   }
+  else if (path.endsWith("/preview")) data = { html: "<h1>Fixture preview</h1>", result: { output: "", exitCode: 0, durationMs: 1, timedOut: false } };
   else if (path.endsWith("/solution")) {
     solutionRequests++;
     if (holdSolution) await new Promise<void>((resolve) => { releaseSolution = resolve; });
@@ -883,7 +886,109 @@ try {
   assert.equal(await runButton().isDisabled(), true);
   assert.equal(await page.getByRole("button", { name: /^Submit$/ }).isEnabled(), true);
   console.log("PASS: practice saves code first, bounds input, blocks duplicates, marks stale results and preserves canonical checks/coaching");
-  console.log("PASS: narrow layout, dark theme, no browser errors");
+  // Qualify the composition explicitly in every required size/theme, including
+  // long result/history text that must stay within its own scrolling pane.
+  practiceEnabled = true;
+  const retained = submissions[0]!;
+  retained.checks.results[0]!.output = "long-output-".repeat(1000);
+  retained.detailsTruncated = true;
+  for (const theme of ["light", "dark"]) {
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 1153, height: 814 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      await page.reload();
+      await page.locator(".cm-content").waitFor();
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("reading");
+      await referenceTabs.getByRole("tab", { name: "Submissions", exact: true }).click();
+      await history.getByRole("button", { name: /Failed/ }).first().click();
+      await history.getByText("Retained details truncated to the history limit.", { exact: true }).waitFor();
+      await history.locator("pre").scrollIntoViewIfNeeded();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${theme} ${viewport.width}: history stays within viewport`);
+      await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+      await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("code");
+      await page.getByRole("button", { name: "Run", exact: true }).scrollIntoViewIfNeeded();
+      const runBox = (await runButton().boundingBox())!;
+      assert.ok(runBox.x >= 0 && runBox.x + runBox.width <= viewport.width, "primary action reachable");
+      await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+    }
+  }
+  console.log("PASS: 1440×900, 1153×814, 390×844 in both themes, long history and reachable actions");
+
+  // Keyboard-only dispatch after entering the editor; tab navigation and case
+  // selection use the same roving-tab controls as pointer interactions.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.reload();
+  await page.locator(".cm-content").waitFor();
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.locator(".cm-editor").evaluate((e) => e.contains(document.activeElement)), false);
+  await page.getByRole("tab", { name: "Testcases", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await casesSaved();
+  await caseTabs.getByRole("tab").first().focus();
+  await page.keyboard.press("ArrowRight");
+  await input.focus();
+  await page.keyboard.press("Control+a");
+  await page.keyboard.type("9");
+  await page.keyboard.press("Tab");
+  await runButton().focus();
+  await page.keyboard.press("Enter");
+  await practiceResult.getByText(/Matches expected output|Completed — no expected/).first().waitFor();
+  await page.getByRole("button", { name: "Submit", exact: true }).focus();
+  const keyboardHistoryCheck = page.waitForResponse((r) => r.url().endsWith("/check"));
+  await page.keyboard.press("Enter");
+  await (await keyboardHistoryCheck).finished();
+  await referenceTabs.getByRole("tab", { name: "Description", exact: true }).focus();
+  await page.keyboard.press("End");
+  await history.getByRole("button", { name: /Failed/ }).first().focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("region", { name: "Submission details", exact: true }).waitFor();
+  await page.locator(".cm-content").focus();
+  assert.equal(await page.locator(".cm-content").evaluate((e) => e === document.activeElement), true);
+  console.log("PASS: keyboard case edit/select, Run, result, Submit, history and editor return");
+
+  // Legacy lessons expose ordinary Submit and explain absent case metadata.
+  delete meta.practice;
+  await page.reload();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await page.getByText(/Run needs compatible generated case metadata/).first().waitFor();
+  assert.equal(await runButton().isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Submit", exact: true }).isEnabled(), true);
+  console.log("PASS: legacy metadata keeps canonical Submit usable");
+
+  track.runner = "written";
+  me.runners.push({ ...me.runners[0]!, id: "written", label: "Written answer", syntax: "markdown", graded: "coach" });
+  await page.reload();
+  const grade = page.getByRole("button", { name: "Submit for grading", exact: true });
+  const checksBeforeGrade = checkRequests;
+  await grade.click();
+  await page.getByRole("region", { name: "Coach", exact: true }).waitFor();
+  assert.equal(checkRequests, checksBeforeGrade, "written grading does not dispatch canonical checks");
+  console.log("PASS: written Submit keeps coach grading");
+
+  track.runner = "container";
+  track.environment = { preset: "node", label: "Fixture", image: "node:24", setup: "", install: "", check: "node --test", preview: "cat index.html", manifests: [], layout: "", syntax: "javascript", checkNetwork: false, env: {}, memory: "256m", cpus: 1, timeoutSec: 120 };
+  me.runners.push({ ...me.runners[0]!, id: "container", label: "Container", syntax: "javascript" });
+  await page.reload();
+  await page.getByRole("tab", { name: "Preview", exact: true }).click();
+  await page.getByRole("button", { name: "Rebuild", exact: true }).waitFor();
+  const previewFrame = page.getByTitle(`Preview of ${meta.title}`, { exact: true });
+  await previewFrame.waitFor();
+  assert.doesNotMatch((await previewFrame.getAttribute("sandbox"))!, /allow-same-origin/);
+  assert.match((await previewFrame.getAttribute("srcdoc"))!, /Fixture preview/);
+  console.log("PASS: container preview remains separate in an opaque-origin iframe (fixture only)");
+
+  track.runner = "go";
+  meta.practice = publishedPractice(JSON.stringify({ version: 1, entry: { file: "solution.go", symbol: "Double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double two", inputs: { n: 2 }, expected: 4 }, { id: "sample-2", name: "Double zero", inputs: { n: 0 } }] }), track.runner, meta.files, meta.verified)!;
+  await page.reload();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await casesSaved();
+  expiredSession = true;
+  await runButton().click();
+  await page.getByRole("heading", { name: "Sign in", exact: true }).waitFor();
+  assert.deepEqual(errors, []);
+  console.log("PASS: expired execution session returns to sign-in; no browser exceptions");
 } catch (error) {
   mkdirSync("captures", { recursive: true });
   console.error("Verification failure:", error);
