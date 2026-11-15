@@ -1,6 +1,7 @@
 /** Browser conformance check against a local Vite server, with isolated lesson API fixtures. */
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
+import type { Submission } from "../shared/submissions.ts";
 import { initialCaseDrafts, validateCaseDrafts } from "../shared/cases.ts";
 import { publishedPractice } from "../server/practice.ts";
 import type { EditorView } from "@codemirror/view";
@@ -29,6 +30,10 @@ const second: LessonMeta = { ...legacyMeta, hints: [], id: "02-editor", title: "
 const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [meta, second].map((lesson) => ({ ...lesson, help: null, lastPassed: null })), materials: [], jobs: [] };
 const me: Me = { user: "fixture", authMode: "proxy", isAdmin: false, sandbox: { sandboxed: true, detail: "Fixture" }, docker: { ok: false }, runners: [{ id: "typescript", label: "TypeScript", syntax: "typescript", layout: "", graded: null, ok: true }], environments: [], levels: [] };
 
+const submissions: Submission[] = [];
+let failHistory = false;
+let holdHistory = false;
+let releaseHistory: (() => void) | undefined;
 let checkRequests = 0;
 let holdCheck = false;
 let releaseCheck: (() => void) | undefined;
@@ -73,6 +78,11 @@ await page.route("**/api/**", async (route) => {
     return;
   }
   else if (path.endsWith("/01-editor")) data = { meta, files: meta.files.map((f) => ({ ...f, editable: f.role !== "test" })), help: null };
+  else if (path.endsWith("/submissions")) {
+    if (holdHistory) await new Promise<void>((resolve) => { releaseHistory = resolve; });
+    if (failHistory) { await route.fulfill({ status: 500, json: { error: "Fixture history unavailable" } }); return; }
+    data = path.includes("02-editor") ? [] : submissions;
+  }
   else if (path.endsWith("/run")) {
     if (route.request().method() === "GET") data = { enabled: practiceEnabled, reason: "Fixture runner has no practice capability" };
     else {
@@ -122,6 +132,8 @@ await page.route("**/api/**", async (route) => {
     checkRequests++;
     if (holdCheck) await new Promise<void>((resolve) => { releaseCheck = resolve; });
     meta.lastChecks = { at: "", passed: false, sandboxed: true, results: [{ command: "go test", exitCode: 1, durationMs: 1, timedOut: false, output: "./solution.go:6:2: undefined: missing" }] };
+    meta.attempts++;
+    submissions.unshift({ id: `s${checkRequests}`, at: "2026-11-15T22:00:00.000Z", passed: false, durationMs: 1, checks: meta.lastChecks, detailsTruncated: false });
     data = { meta, firstPass: false, checks: meta.lastChecks };
   }
   else throw new Error(`Unexpected fixture request: ${path}`);
@@ -390,7 +402,7 @@ try {
   await page.getByRole("button", { name: /Show a hint/ }).click();
   await page.locator(".hint-card").filter({ hasText: "Try a map." }).waitFor();
   await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).focus();
-  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowRight");
   assert.equal(await referenceTabs.getByRole("tab", { name: "Reference solution", exact: true }).getAttribute("aria-selected"), "true");
   assert.equal(solutionRequests, 0, "reference tab does not fetch the solution");
   assert.equal(await page.getByText(/REVEALED FIXTURE SOLUTION/).count(), 0);
@@ -842,6 +854,28 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.setViewportSize({ width: 1440, height: 900 });
   console.log("PASS: Test Result empty/running/per-case states, recorded values, errors, stale results, independent Submit output and short phone scrolling");
+  await page.getByRole("tab", { name: "Submissions", exact: true }).click();
+  const history = page.getByRole("region", { name: "Personal submissions", exact: true });
+  await history.getByRole("button", { name: /Failed/ }).first().click();
+  await page.getByRole("region", { name: "Submission details", exact: true }).getByText(/undefined: missing/).waitFor();
+  assert.equal(submissions.length, checkRequests, "only canonical checks create submissions");
+  const documentBeforeHistory = await editorDocument();
+  const oldPractice = await practiceResult.innerText();
+  failHistory = true;
+  await referenceTabs.getByRole("tab", { name: "Description", exact: true }).click();
+  await referenceTabs.getByRole("tab", { name: "Submissions", exact: true }).click();
+  await history.getByRole("alert").waitFor();
+  failHistory = false;
+  holdHistory = true;
+  await history.getByRole("button", { name: "Retry submissions" }).click();
+  await history.getByText("Loading submissions…", { exact: true }).waitFor();
+  holdHistory = false;
+  releaseHistory!();
+  await history.getByRole("button", { name: /Failed/ }).first().waitFor();
+  assert.equal(await editorDocument(), documentBeforeHistory);
+  await page.getByRole("tab", { name: "Test Result", exact: true }).click();
+  assert.equal(await practiceResult.innerText(), oldPractice);
+  console.log("PASS: private submission list/detail, loading/error/retry and unchanged code/practice state");
   practiceEnabled = false;
   await page.reload();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();

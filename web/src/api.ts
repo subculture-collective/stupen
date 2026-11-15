@@ -1,3 +1,4 @@
+import type { Submission } from "../../shared/submissions.ts";
 import type { PracticeRequest, PracticeRun } from "../../shared/practiceRun.ts";
 import type { Practice } from "../../shared/practice.ts";
 import type { CaseDrafts } from "../../shared/cases.ts";
@@ -213,6 +214,7 @@ export const api = {
   lesson: (track: string, lesson: string) => call<LessonState>(l(track, lesson)),
   practiceAvailability: (track: string, lesson: string) => call<{ enabled: boolean; reason: string }>(`${l(track, lesson)}/run`),
   runCase: (track: string, lesson: string, request: PracticeRequest) => call<PracticeRun>(`${l(track, lesson)}/run`, json("POST", request)),
+  submissions: (track: string, lesson: string) => call<Submission[]>(`${l(track, lesson)}/submissions`),
   caseDrafts: (track: string, lesson: string) => call<CaseDrafts>(`${l(track, lesson)}/cases`),
   saveCaseDrafts: (track: string, lesson: string, draft: CaseDrafts) => call<{ ok: true }>(`${l(track, lesson)}/cases`, json("PUT", draft)),
   deleteLesson: (track: string, lesson: string) => call<{ ok: true }>(l(track, lesson), { method: "DELETE" }),

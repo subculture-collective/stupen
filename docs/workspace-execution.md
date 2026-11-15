@@ -48,3 +48,28 @@ There is one practice outcome store, separate from canonical checks. Editing cod
 or any case retains the recorded result with a stale notice, including edit/undo
 during a run. A later Submit cannot replace it. Short phone panes scroll to every
 field and the result tabs wrap within the existing themed workspace.
+
+## Personal submissions
+
+Canonical Submit records a real timestamp, pass/fail, summed check execution
+milliseconds and bounded command/output details. The reading pane's Submissions
+tab loads only the current learner's results. Inspecting a result changes neither
+source nor practice outcomes. Written grading stays in the coach conversation.
+An older lesson's `lastChecks` is labelled **Existing latest result**; historical
+attempts and timestamps are never reconstructed.
+
+Retention is the newest 30 submissions per lesson, with at most 20 commands and
+12,000 total command/output characters per record (512 per command). Truncated
+details are labelled. Older records expire on the next successful Submit.
+This bounds history to about 2.3 MiB per lesson even for JSON-escaped text; it
+counts toward the existing 300 MiB account budget. Check output can include
+learner-printed text, so it is private account data. No source snapshots are
+stored. Account export includes these records; deleting a lesson, track or
+account removes them through the existing filesystem lifecycle.
+
+History and progress share one atomic metadata write. If storage fails, Submit
+reports that neither was saved. A retry reruns checks; there is no silent graded
+success without a retained result. In-flight canonical submissions are limited
+to one per account. Infrastructure failures before checks finish create no
+submission; practice runs never write history.
+
