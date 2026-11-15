@@ -1,6 +1,7 @@
 /** Browser conformance check against a local Vite server, with isolated lesson API fixtures. */
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
+import { initialCaseDrafts, validateCaseDrafts } from "../shared/cases.ts";
 import { publishedPractice } from "../server/practice.ts";
 import type { EditorView } from "@codemirror/view";
 import { chromium } from "playwright-core";
@@ -22,12 +23,17 @@ const code: Record<string, string> = {
 };
 const track: Track = { id: "editor-check", title: "Editor checks", subject: "Programming", runner: "typescript", level: "beginner", goals: "Practise", background: "", style: "", sessionMinutes: 20, defaultCeiling: 0, provider: "claude", web: false, createdAt: "", updatedAt: "" };
 const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.\n\n" + "Read this lesson while coding.\n\n".repeat(80), hints: ["Try a map.", "Check the edge cases."], sources: [{ title: "Fixture reading", url: "https://example.com/lesson" }], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
-meta.practice = publishedPractice(JSON.stringify({ version: 1, entry: { file: "helpers.ts", symbol: "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double two", inputs: { n: 2 }, expected: 4 }] }), track.runner, meta.files, meta.verified)!;
+meta.practice = publishedPractice(JSON.stringify({ version: 1, entry: { file: "helpers.ts", symbol: "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double two", inputs: { n: 2 }, expected: 4 }, { id: "sample-2", name: "Double zero", inputs: { n: 0 } }] }), track.runner, meta.files, meta.verified)!;
 const { practice: _samples, ...legacyMeta } = meta;
 const second: LessonMeta = { ...legacyMeta, hints: [], id: "02-editor", title: "Next editor lesson", objective: "Next lesson context" };
 const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [meta, second].map((lesson) => ({ ...lesson, help: null, lastPassed: null })), materials: [], jobs: [] };
 const me: Me = { user: "fixture", authMode: "proxy", isAdmin: false, sandbox: { sandboxed: true, detail: "Fixture" }, docker: { ok: false }, runners: [{ id: "typescript", label: "TypeScript", syntax: "typescript", layout: "", graded: null, ok: true }], environments: [], levels: [] };
 
+let caseDrafts = initialCaseDrafts(meta.practice!);
+let failNextCaseSave = false;
+let holdCaseSave = false;
+let releaseCaseSave: (() => void) | undefined;
+let caseWrites = 0;
 let holdSaves = false;
 let failNextSave = false;
 let failSavePath: string | undefined;
@@ -57,6 +63,19 @@ await page.route("**/api/**", async (route) => {
     return;
   }
   else if (path.endsWith("/01-editor")) data = { meta, files: meta.files.map((f) => ({ ...f, editable: f.role !== "test" })), help: null };
+  else if (path.endsWith("/cases")) {
+    if (route.request().method() === "PUT") {
+      caseWrites++;
+      if (holdCaseSave) await new Promise<void>((resolve) => { releaseCaseSave = resolve; });
+      if (failNextCaseSave) {
+        failNextCaseSave = false;
+        await route.fulfill({ status: 500, json: { error: "Fixture case storage unavailable" } });
+        return;
+      }
+      caseDrafts = structuredClone(validateCaseDrafts(route.request().postDataJSON(), meta.practice!));
+      data = { ok: true };
+    } else data = caseDrafts;
+  }
   else if (path.endsWith("/solution")) {
     solutionRequests++;
     if (holdSolution) await new Promise<void>((resolve) => { releaseSolution = resolve; });
@@ -108,6 +127,110 @@ try {
   assert.ok(meta.practice, "fixture publishes validated optional sample metadata");
   assert.equal(await page.getByRole("button", { name: "Run", exact: true }).count(), 0, "metadata alone never advertises practice execution");
   assert.equal(await page.getByRole("button", { name: /Run checks/ }).isEnabled(), true);
+  const casesPanel = page.getByRole("tabpanel", { name: "Testcases", exact: true });
+  const caseTabs = page.getByRole("tablist", { name: "Test cases", exact: true });
+  const input = casesPanel.getByRole("textbox", { name: /^n integer/ });
+  const casesSaved = () => casesPanel.getByRole("status").filter({ hasText: /^Cases saved/ }).waitFor();
+  await input.waitFor();
+  await casesSaved();
+  mkdirSync("captures", { recursive: true });
+  await page.screenshot({ path: "captures/cases-desktop.png" });
+  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+  await page.screenshot({ path: "captures/cases-dark.png" });
+  await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
+  const firstBody = (await input.boundingBox())!;
+  const panelBox = (await casesPanel.boundingBox())!;
+  assert.ok(firstBody.y >= panelBox.y && firstBody.y + firstBody.height <= panelBox.y + panelBox.height, "initial desktop pane exposes the whole first input");
+  await input.fill("7");
+  await casesSaved();
+  await caseTabs.getByRole("tab", { name: "Sample 2", exact: true }).click();
+  assert.equal(await input.inputValue(), "0");
+  await caseTabs.getByRole("tab", { name: "Sample 1", exact: true }).click();
+  assert.equal(await input.inputValue(), "7");
+  await casesPanel.getByRole("button", { name: "Add custom case" }).click();
+  assert.equal(await input.inputValue(), "7");
+  assert.equal(await casesPanel.getByRole("checkbox", { name: "Compare expected output" }).isChecked(), false);
+  await input.fill("{");
+  await casesSaved();
+  assert.equal(await input.getAttribute("aria-invalid"), "true");
+  assert.match(await casesPanel.innerText(), /Invalid inputs cannot run/);
+  assert.equal(await page.getByRole("button", { name: /Run checks/ }).isEnabled(), true, "case validation never blocks canonical checks");
+  await page.reload();
+  await casesSaved();
+  assert.equal(await input.inputValue(), "{");
+  assert.equal(await caseTabs.getByRole("tab", { selected: true }).innerText(), "Custom 3 (invalid)");
+  await input.fill('"wrong type"');
+  assert.match(await casesPanel.innerText(), /expected safe integer/);
+  await input.fill("9007199254740992");
+  assert.match(await casesPanel.innerText(), /expected safe integer/);
+  await input.fill("9");
+  await casesPanel.getByRole("checkbox", { name: "Compare expected output" }).check();
+  await casesPanel.getByRole("textbox", { name: /^Expected output/ }).fill("0");
+  await casesSaved();
+  assert.equal(caseDrafts.cases.at(-1)?.expected, "0");
+  failNextCaseSave = true;
+  await input.fill("11");
+  await casesPanel.getByRole("alert").filter({ hasText: "Fixture case storage unavailable" }).waitFor();
+  assert.equal(await input.inputValue(), "11");
+  await casesPanel.getByRole("button", { name: "Retry saving cases" }).click();
+  await casesSaved();
+  holdCaseSave = true;
+  await input.fill("12");
+  await casesPanel.getByRole("status").filter({ hasText: "Saving cases…" }).waitFor();
+  await input.fill("13");
+  await caseTabs.getByRole("tab", { name: "Sample 2", exact: true }).click();
+  holdCaseSave = false;
+  releaseCaseSave!();
+  await casesSaved();
+  assert.equal(caseDrafts.selected, "sample-2");
+  assert.equal(caseDrafts.cases.at(-1)?.inputs.n, "13", "slow saves cannot discard newer edits or selection");
+  await caseTabs.getByRole("tab", { name: "Custom 3", exact: true }).click();
+  await casesPanel.getByRole("button", { name: "Remove custom case" }).click();
+  await casesSaved();
+  assert.equal(caseDrafts.cases.length, 2);
+  await casesPanel.getByRole("checkbox", { name: "Compare expected output" }).check();
+  await casesPanel.getByRole("textbox", { name: /^Expected output/ }).fill("5");
+  await casesPanel.getByRole("button", { name: "Reset sample" }).click();
+  assert.equal(await casesPanel.getByRole("checkbox", { name: "Compare expected output" }).isChecked(), false, "reset removes an expected value absent in the original sample");
+
+  await caseTabs.getByRole("tab", { name: "Sample 1", exact: true }).click();
+  await casesPanel.getByRole("button", { name: "Reset sample" }).click();
+  assert.equal(await input.inputValue(), "2");
+  for (let i = 0; i < 18; i++) await casesPanel.getByRole("button", { name: "Add custom case" }).click();
+  assert.equal(await casesPanel.getByRole("button", { name: "Add custom case" }).isDisabled(), true);
+  await casesSaved();
+  for (let i = 0; i < 18; i++) await casesPanel.getByRole("button", { name: "Remove custom case" }).click();
+  await casesSaved();
+  const caseSize = page.getByRole("separator", { name: "Resize results panel" });
+  await caseSize.focus();
+  await page.keyboard.press("Home");
+  await casesPanel.getByRole("checkbox", { name: "Compare expected output" }).scrollIntoViewIfNeeded();
+  assert.equal(await casesPanel.getByRole("checkbox", { name: "Compare expected output" }).isVisible(), true);
+  await caseSize.focus();
+  for (let i = 0; i < 17; i++) await page.keyboard.press("ArrowUp");
+  assert.equal(await caseSize.getAttribute("aria-valuenow"), "260");
+  holdCaseSave = true;
+  await input.fill("14");
+  await casesPanel.getByRole("status").filter({ hasText: "Saving cases…" }).waitFor();
+  await input.fill("15");
+  await page.getByRole("button", { name: "Problem List", exact: true }).click();
+  await page.getByRole("link", { name: "Next editor lesson", exact: true }).click();
+  await page.waitForURL(/learn\/02-editor$/);
+  await page.getByRole("button", { name: "Problem List", exact: true }).click();
+  await page.getByRole("link", { name: "Editor lesson", exact: true }).click();
+  await page.waitForURL(/learn\/01-editor$/);
+  await casesPanel.getByText("Loading cases…", { exact: true }).waitFor();
+  holdCaseSave = false;
+  releaseCaseSave!();
+  await casesSaved();
+  assert.equal(await input.inputValue(), "15", "returning lesson waits for previous instance's writes before reading");
+  await casesPanel.getByRole("button", { name: "Reset sample" }).click();
+  await casesSaved();
+  assert.equal(writes.length, 0, "case editing never writes starter code or tests");
+  assert.equal(meta.attempts, 0);
+  assert.equal(chats.length, 0, "case edits do not trigger coaching");
+  assert.ok(caseWrites > 0);
+  console.log("PASS: visible case body, stable samples, custom add/remove/limit, validation, reload/selection, failed-save retry, serialized saves and scroll/resize");
   assert.match(await page.locator(".editor-toolbar").innerText(), /solution.ts.*TypeScript/s);
   assert.match(await page.locator(".editor-toolbar").innerText(), /Checks: Node 24/);
   assert.equal(await page.locator(".editor-toolbar select").count(), 0);
@@ -324,7 +447,7 @@ try {
   const results = page.getByRole("separator", { name: "Resize results panel" });
   await results.focus();
   await page.keyboard.press("ArrowUp");
-  assert.equal(await results.getAttribute("aria-valuenow"), "220");
+  assert.equal(await results.getAttribute("aria-valuenow"), "270");
   await page.getByRole("button", { name: "Collapse results panel" }).click();
   assert.equal(await results.count(), 0);
   await page.getByRole("button", { name: "Expand results panel" }).click();
@@ -405,7 +528,7 @@ try {
   assert.equal(await coach.getAttribute("aria-valuenow"), "400");
   await page.getByRole("button", { name: "Collapse coach panel" }).click();
   await page.getByRole("tab", { name: "Check output", exact: true }).click();
-  assert.equal(await results.getAttribute("aria-valuenow"), "210");
+  assert.equal(await results.getAttribute("aria-valuenow"), "260");
   assert.equal(await editorDocument(), focusDocument, "reset retains code");
   assert.equal(await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).getAttribute("aria-selected"), "true", "reset retains reading tabs");
   await referenceTabs.getByRole("tab", { name: "Description", exact: true }).click();
@@ -465,6 +588,12 @@ try {
   assert.equal(await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).getAttribute("aria-selected"), "true");
   await page.getByRole("tab", { name: "Code", exact: true }).click();
   await page.screenshot({ path: "captures/editor-phone.png" });
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await input.scrollIntoViewIfNeeded();
+  assert.equal(await input.isVisible(), true);
+  await page.screenshot({ path: "captures/cases-phone.png" });
+  await page.getByRole("tab", { name: /^Problems/ }).click();
+
   await page.getByRole("button", { name: "Maximize Code pane", exact: true }).click();
   await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
   await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).click();
@@ -479,6 +608,12 @@ try {
   await page.waitForURL(/learn\/02-editor$/);
   await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).click();
   await page.getByRole("heading", { name: second.title, exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("results");
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await casesPanel.getByText(/Editable cases need compatible generated sample metadata/).waitFor();
+  assert.equal(await casesPanel.getByRole("button", { name: "Add custom case" }).count(), 0);
+  await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+
   await page.getByRole("tab", { name: "Coach", exact: true }).click();
   assert.equal(await page.getByRole("combobox", { name: "Help limit" }).inputValue(), "0");
   await draft.fill("Check the second lesson context");
@@ -521,7 +656,7 @@ try {
   assert.equal(await description.getAttribute("aria-valuenow"), "640");
   assert.equal(await coach.getAttribute("aria-valuenow"), "260");
   await page.getByRole("tab", { name: "Check output", exact: true }).click();
-  assert.equal(await results.getAttribute("aria-valuenow"), "210");
+  assert.equal(await results.getAttribute("aria-valuenow"), "260");
   for (const viewport of [{ width: 1153, height: 814 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

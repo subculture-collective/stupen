@@ -1222,7 +1222,7 @@ a {
   min-height: 0;
   overflow: hidden;
 }
-.results-panel > .output, .problems {
+.results-panel > .output, .problems, .testcases {
   flex: 1;
   min-height: 0;
   max-height: none;
@@ -1231,6 +1231,16 @@ a {
   padding: 4px 10px 8px;
   background: var(--sunken);
 }
+.case-controls, .case-heading, .case-tabs { display: flex; align-items: center; gap: 6px; }
+.case-controls { flex-wrap: wrap; margin-bottom: 6px; }
+.case-tabs { flex-wrap: wrap; }
+.case-tabs button { font-size: 12px; padding: 3px 6px; }
+.case-tabs [aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+.case-heading { justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+.testcases label { display: block; margin: 6px 0; font-size: 12px; }
+.testcases textarea { min-height: 44px; font-family: var(--mono); }
+.testcases [aria-invalid="true"] { border-color: var(--bad); }
+.testcases .case-compare { display: flex; align-items: center; gap: 6px; }
 .problem {
   display: flex;
   flex-wrap: wrap;

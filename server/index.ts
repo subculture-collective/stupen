@@ -64,6 +64,7 @@ import {
   listLessons,
   listMaterials,
   listTracks,
+  readCaseDrafts,
   readLessonFile,
   readPlan,
   readReference,
@@ -74,11 +75,14 @@ import {
   updateTrack,
   userDir,
   userId,
+  writeCaseDrafts,
   writeLessonFile,
   writeNotes,
   writePlan,
 } from "./store.ts";
 import { HttpError } from "./util.ts";
+import { DRAFT_BYTES } from "../shared/cases.ts";
+import { parsePracticeJson } from "../shared/practiceValues.ts";
 
 const run = promisify(execFile);
 
@@ -98,7 +102,7 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-async function body(req: IncomingMessage, limit = 1_000_000): Promise<any> {
+async function body(req: IncomingMessage, limit = 1_000_000, decode: (text: string) => unknown = JSON.parse): Promise<any> {
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const c of req) {
@@ -107,7 +111,7 @@ async function body(req: IncomingMessage, limit = 1_000_000): Promise<any> {
     chunks.push(c);
   }
   try {
-    return JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    return decode(Buffer.concat(chunks).toString() || "{}");
   } catch {
     throw new HttpError(400, "invalid JSON");
   }
@@ -423,6 +427,8 @@ const routes: Route[] = [
   { method: "GET", pattern: /^\/api\/jobs$/, handle: async (user, _m, _r, _s, url) => listJobs(user, url.searchParams.get("track") ?? undefined) },
   { method: "POST", pattern: /^\/api\/jobs\/(j[a-z0-9]+)\/cancel$/, handle: async (user, m) => (cancelJob(user, m[1]!), { ok: true }) },
   { method: "GET", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}$`), handle: (user, m) => lessonState(user, m[1]!, m[2]!) },
+  { method: "GET", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/cases$`), handle: (user, m) => readCaseDrafts(user, m[1]!, m[2]!) },
+  { method: "PUT", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/cases$`), handle: async (user, m, req) => (await writeCaseDrafts(user, m[1]!, m[2]!, await body(req, DRAFT_BYTES, (text) => parsePracticeJson(text, DRAFT_BYTES))), { ok: true }) },
   { method: "DELETE", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}$`), handle: async (user, m) => (await deleteLesson(user, m[1]!, m[2]!), { ok: true }) },
   {
     method: "GET",

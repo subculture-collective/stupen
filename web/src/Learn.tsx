@@ -5,6 +5,7 @@ import { go, href } from "./App.tsx";
 import { Coach, fireTrigger, type PromptVars } from "./Coach.tsx";
 import { type Caret, Editor, fileLanguage } from "./Editor.tsx";
 import { summarize } from "./checks.ts";
+import { Testcases } from "./Testcases.tsx";
 import { Md } from "./Md.tsx";
 import { ConfirmButton, LockIcon, RUN_KEY, StatusIcon, tabKeys, useMedia } from "./ui.tsx";
 import { ResizeHandle } from "./ResizeHandle.tsx";
@@ -365,9 +366,9 @@ const Workbench = forwardRef<
   const [readingTab, setReadingTab] = useState<"description" | "hints" | "solution">("description");
   const [revealing, setRevealing] = useState(false);
   const [solution, setSolution] = useState<{ path: string; content: string }[]>();
-  const [outputOpen, setOutputOpen] = useState(Boolean(meta.lastChecks && !meta.lastChecks.passed));
-  const [resultTab, setResultTab] = useState<"problems" | "output">("problems");
-  const [resultHeight, setResultHeight] = usePanelSize("study-coach:results-height", 210, 90, 500);
+  const [outputOpen, setOutputOpen] = useState(Boolean(meta.practice || (meta.lastChecks && !meta.lastChecks.passed)));
+  const [resultTab, setResultTab] = useState<"cases" | "problems" | "output">(meta.practice ? "cases" : "problems");
+  const [resultHeight, setResultHeight] = usePanelSize("study-coach:results-height", 260, 90, 500);
   const [gotoLine, setGotoLine] = useState<{ line: number; column: number; at: number }>();
   const [checksStale, setChecksStale] = useState(false);
   const [typedProblems, setTypedProblems] = useState<CodeProblem[]>([]);
@@ -474,7 +475,7 @@ const Workbench = forwardRef<
   useImperativeHandle(ref, () => ({
     vars: () => ({ file: tab === "preview" ? "" : tab, selection: selection.current, failing: failingText(checks) }),
     saveAll,
-    resetLayout: () => { setDescriptionWidth(380); setResultHeight(210); setOutputOpen(false); },
+    resetLayout: () => { setDescriptionWidth(380); setResultHeight(260); setOutputOpen(false); },
   }));
 
   const edit = (path: string, value: string) => {
@@ -819,14 +820,18 @@ const Workbench = forwardRef<
           </div>
           {saveError && <p className="error small" role="alert" hidden={props.layout === "results"}>{contents[saveError.path]?.saveError} — Ctrl/Cmd+S retries the active file; Run checks saves all files first.</p>}
           <div className="results-toolbar" role="tablist" aria-label="Results" hidden={props.layout === "code"}>
+            <button type="button" role="tab" aria-selected={resultTab === "cases" && (outputOpen || props.layout === "results")} aria-controls="lesson-cases" onClick={() => { setResultTab("cases"); if (props.layout !== "results") setOutputOpen(true); }}>Testcases</button>
             <button type="button" role="tab" aria-selected={resultTab === "problems" && (outputOpen || props.layout === "results")} aria-controls="lesson-problems" onClick={() => { setResultTab("problems"); if (props.layout !== "results") setOutputOpen(true); }}>Problems ({problems.length})</button>
             <button type="button" role="tab" aria-selected={resultTab === "output" && (outputOpen || props.layout === "results")} aria-controls="lesson-output" onClick={() => { setResultTab("output"); if (props.layout !== "results") setOutputOpen(true); }}>Check output</button>
             <span className="spacer" />
             <button type="button" className="small-button" aria-label={props.layout === "results" ? "Restore split layout" : "Maximize results pane"} onClick={() => props.changeLayout(props.layout === "results" ? "split" : "results")}>{props.layout === "results" ? "Restore" : "Maximize"}</button>
             <button type="button" className="panel-fold" hidden={props.layout === "results"} aria-label={outputOpen ? "Collapse results panel" : "Expand results panel"} aria-expanded={outputOpen} onClick={() => setOutputOpen(!outputOpen)}>{outputOpen ? "⌄" : "⌃"}</button>
           </div>
-          {(outputOpen || props.layout === "results") && <section className={`results-panel ${props.layout === "results" ? "maximized" : ""}`} hidden={props.layout === "code"} style={props.layout === "results" ? undefined : { height: resultHeight }} aria-label="Results panel">
-            {props.layout !== "results" && <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />}
+          <section className={`results-panel ${props.layout === "results" ? "maximized" : ""}`} hidden={props.layout === "code" || (!outputOpen && props.layout !== "results")} style={props.layout === "results" ? undefined : { height: resultHeight }} aria-label="Results panel">
+            {props.layout !== "results" && outputOpen && <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />}
+            <div id="lesson-cases" role="tabpanel" aria-label="Testcases" className="testcases" hidden={resultTab !== "cases"}>
+              <Testcases track={track} lesson={meta.id} practice={meta.practice} />
+            </div>
             <div id="lesson-problems" role="tabpanel" aria-label="Problems" className="problems" hidden={resultTab !== "problems"}>
               {assistanceError && <p className="notice small" role="status">{assistanceError}</p>}
               {!problems.length && <p className="small muted">No problems reported. Run checks for compiler and test results.</p>}
@@ -854,7 +859,7 @@ const Workbench = forwardRef<
               ))}
               </>}
             </section>
-          </section>}
+          </section>
         </section>
       </div>
     </article>
