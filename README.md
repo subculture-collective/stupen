@@ -57,7 +57,7 @@ Select a problem to open its file at the reported line and column. Editing inval
 the old check diagnostics; the original check output remains available and is labelled
 as predating the edits.
 
-On desktop, Description and Code scroll independently, with Problems and Check output
+On desktop, Description and Code scroll independently, with Testcases, Problems and Check output
 below Code. Problem List opens lesson navigation without replacing the description.
 The workspace toolbar keeps Run checks (or written grading) in reach. Coach folds
 without losing its draft or help limit; it starts folded for a new browser.
@@ -69,7 +69,7 @@ toolbar. Layouts selects the same modes. Restore keeps split sizes, folded state
 active tabs and editor state; focus mode itself is temporary. Reset layout restores
 default sizes and folded Coach/results without clearing code or tabs. Stored sizes
 are bounded, and the rendered splits adapt to the viewport.
-The description and coach panes resize. The Problems/Check
+The description and coach panes resize. The Testcases/Problems/Check
 output panel can collapse and resize vertically. Splitters support dragging, arrow
 keys, Shift+arrows, Home and End. Panel sizes and coach collapse state persist
 in this browser. Narrow screens use Description/Code/Coach tabs while keeping the
@@ -90,6 +90,20 @@ contract and only publishes it after canonical reference/starter verification.
 Invalid or incompatible metadata is omitted; existing lessons and checks still load.
 Metadata does not enable practice execution: that requires a matching future runner
 capability. The [case contract](docs/decisions/001-editable-cases.md) defines its bounds.
+
+Testcases shows generated samples and lets you edit their named JSON inputs, reset a
+sample, and add or remove custom cases. Expected output is optional; without it a
+future practice run can show output but cannot report a pass. Field errors explain
+invalid JSON or schema mismatches. The panel starts open for compatible lessons and
+scrolls at smaller heights; its labelled resize control also works with the keyboard.
+
+Drafts, including unfinished JSON and the selected case, save to your account under
+the lesson. Save failures keep edits visible and offer a retry. Only sample overrides
+and custom cases are stored; the generated originals, source files, canonical tests
+and graded progress are unchanged. Limits are 20 total cases, 32 KiB per parsed case
+(64 KiB raw draft text) and 256 KiB total, with the schema's value limits also checked
+before drafts can become execution inputs. Practice execution remains unavailable
+until the runner supports it.
 
 ## Containers
 

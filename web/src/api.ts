@@ -1,4 +1,5 @@
 import type { Practice } from "../../shared/practice.ts";
+import type { CaseDrafts } from "../../shared/cases.ts";
 
 /** "claude" or "codex" (the server's subscription logins, admins only) or a connection id. */
 export type Provider = string;
@@ -209,6 +210,8 @@ export const api = {
   jobs: (track?: string) => call<Job[]>(`/api/jobs${track ? `?track=${q(track)}` : ""}`),
   cancelJob: (id: string) => call<{ ok: true }>(`/api/jobs/${q(id)}/cancel`, { method: "POST" }),
   lesson: (track: string, lesson: string) => call<LessonState>(l(track, lesson)),
+  caseDrafts: (track: string, lesson: string) => call<CaseDrafts>(`${l(track, lesson)}/cases`),
+  saveCaseDrafts: (track: string, lesson: string, draft: CaseDrafts) => call<{ ok: true }>(`${l(track, lesson)}/cases`, json("PUT", draft)),
   deleteLesson: (track: string, lesson: string) => call<{ ok: true }>(l(track, lesson), { method: "DELETE" }),
   readFile: (track: string, lesson: string, path: string) => call<{ content: string }>(`${l(track, lesson)}/file?path=${q(path)}`),
   writeFile: (track: string, lesson: string, path: string, content: string) => call<{ ok: true }>(`${l(track, lesson)}/file`, json("PUT", { path, content })),

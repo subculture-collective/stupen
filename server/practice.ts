@@ -1,3 +1,4 @@
+import { parsePracticeJson as parse, validatePracticeValue as value } from "../shared/practiceValues.ts";
 import type { Practice, PracticeSchema } from "../shared/practice.ts";
 import { runner } from "./runners.ts";
 import { safeRel } from "./util.ts";
@@ -18,23 +19,6 @@ function fields(v: unknown, required: string[], optional: string[] = []): assert
   require(object(v) && required.every((k) => Object.hasOwn(v, k)) && Object.keys(v).every((k) => required.includes(k) || optional.includes(k)), "unexpected or missing fields");
 }
 
-/** Keep duplicate keys from silently changing the model's JSON declaration. */
-function parse(text: string): unknown {
-  require(Buffer.byteLength(text, "utf8") <= 65_536, "practice metadata exceeds 64 KiB");
-  const value: unknown = JSON.parse(text);
-  const keys: Set<string>[] = [];
-  for (const m of text.matchAll(/"(?:\\[\s\S]|[^"\\])*"|[{}]/g)) {
-    if (m[0] === "{") keys.push(new Set());
-    else if (m[0] === "}") keys.pop();
-    else if (/^\s*:/.test(text.slice(m.index + m[0].length))) {
-      const name = JSON.parse(m[0]) as string;
-      require(!keys.at(-1)?.has(name), "duplicate JSON key");
-      keys.at(-1)?.add(name);
-    }
-  }
-  return value;
-}
-
 function schema(v: unknown, depth = 1): asserts v is PracticeSchema {
   require(depth <= 8 && object(v), "schema nesting exceeds 8 or is not an object");
   switch (v.type) {
@@ -49,24 +33,6 @@ function schema(v: unknown, depth = 1): asserts v is PracticeSchema {
       break;
     }
     default: throw new Error("unsupported schema type");
-  }
-}
-
-function value(v: unknown, s: PracticeSchema, depth = 1): void {
-  require(depth <= 8, "value nesting exceeds 8");
-  switch (s.type) {
-    case "boolean": require(typeof v === "boolean", "expected boolean"); break;
-    case "string": require(typeof v === "string" && Buffer.byteLength(v, "utf8") <= 8192, "expected string of at most 8192 bytes"); break;
-    case "integer": require(typeof v === "number" && Number.isSafeInteger(v), "expected safe integer"); break;
-    case "number": require(typeof v === "number" && Number.isFinite(v) && (!Number.isInteger(v) || Number.isSafeInteger(v)), "expected finite safe number"); break;
-    case "array":
-      require(Array.isArray(v) && v.length <= 1000, "expected array of at most 1000 elements");
-      for (const item of v) value(item, s.items, depth + 1);
-      break;
-    case "object":
-      fields(v, Object.keys(s.properties));
-      for (const [name, child] of Object.entries(s.properties)) value(v[name], child, depth + 1);
-      break;
   }
 }
 

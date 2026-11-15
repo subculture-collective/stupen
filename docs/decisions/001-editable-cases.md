@@ -87,6 +87,22 @@ do not invoke pytest or `node --test` for practice.
 
 ## App API and side effects
 
+Case editing (#15) uses authenticated `GET`/`PUT
+`/api/tracks/:track/lessons/:lesson/cases`. The version-1 draft envelope contains
+`selected` and `cases`; each case has `id`, `name`, exact named `inputs` as JSON
+text, and optional `expected` JSON text. The server validates the closed envelope,
+IDs, names, counts and byte limits. Unfinished or schema-invalid JSON is retained
+as draft text and shown with field errors; it is never an execution request.
+Shared parsing returns executable case data only when every field validates.
+
+The server derives samples and schemas from the owned lesson. It writes only
+learner overrides/custom cases and selection to `.meta/cases.json`, never to
+generated samples, source, tests or progress. Unchanged samples are reconstructed
+on read. Drafts are limited to 20 total cases, 32 KiB per parsed case, 64 KiB raw
+text per case (JSON text needs additional escaping), and 256 KiB total. The existing
+session/app-header and account storage checks apply. The UI serializes autosaves and exposes failed saves with retry.
+Execution remains a later delivery unit.
+
 Add authenticated `POST /api/tracks/:track/lessons/:lesson/run`:
 
 ```json

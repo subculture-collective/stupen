@@ -2,6 +2,7 @@ import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises
 import { join, relative } from "node:path";
 
 import type { Practice } from "../shared/practice.ts";
+import { initialCaseDrafts, sampleDraft, validateCaseDrafts, type CaseDrafts } from "../shared/cases.ts";
 import { publishedPractice } from "./practice.ts";
 import { config } from "./config.ts";
 import { cleanEnvironment, type Environment } from "./environments.ts";
@@ -257,6 +258,33 @@ function publicPractice(meta: LessonMeta, runtime: string): LessonMeta {
 
 export async function saveLessonMeta(user: string, track: string, meta: LessonMeta) {
   await writeJson(metaPath(user, track, meta.id), meta);
+}
+
+async function casePractice(user: string, track: string, lesson: string) {
+  const { practice } = await getLesson(user, track, lesson);
+  if (!practice) throw new HttpError(422, "Editable cases need compatible generated sample metadata. Ordinary lesson checks are still available.");
+  return practice;
+}
+
+export async function readCaseDrafts(user: string, track: string, lesson: string): Promise<CaseDrafts> {
+  const practice = await casePractice(user, track, lesson);
+  const initial = initialCaseDrafts(practice);
+  const saved = await readJson<CaseDrafts | undefined>(join(lessonDir(user, track, lesson), ".meta", "cases.json"), undefined);
+  if (!saved) return initial;
+  const merged = { ...saved, cases: [...initial.cases.map((c) => saved.cases.find((s) => s.id === c.id) ?? c), ...saved.cases.filter((c) => c.id.startsWith("custom-"))] };
+  try { return validateCaseDrafts(merged, practice); }
+  catch { throw new HttpError(409, "Saved case drafts do not match this lesson's metadata."); }
+}
+
+export async function writeCaseDrafts(user: string, track: string, lesson: string, input: unknown): Promise<void> {
+  const practice = await casePractice(user, track, lesson);
+  let draft: CaseDrafts;
+  try { draft = validateCaseDrafts(input, practice); }
+  catch (e) { throw new HttpError(400, (e as Error).message); }
+  const originals = practice.cases.map(sampleDraft);
+  // Store only learner overrides/custom cases and selection, outside runnable source.
+  const cases = draft.cases.filter((c) => !originals.some((s) => JSON.stringify(s) === JSON.stringify(c)));
+  await writeJson(join(lessonDir(user, track, lesson), ".meta", "cases.json"), { version: 1, selected: draft.selected, cases });
 }
 
 export async function nextLessonId(user: string, track: string, title: string): Promise<string> {
