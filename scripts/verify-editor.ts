@@ -29,6 +29,9 @@ const second: LessonMeta = { ...legacyMeta, hints: [], id: "02-editor", title: "
 const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [meta, second].map((lesson) => ({ ...lesson, help: null, lastPassed: null })), materials: [], jobs: [] };
 const me: Me = { user: "fixture", authMode: "proxy", isAdmin: false, sandbox: { sandboxed: true, detail: "Fixture" }, docker: { ok: false }, runners: [{ id: "typescript", label: "TypeScript", syntax: "typescript", layout: "", graded: null, ok: true }], environments: [], levels: [] };
 
+let checkRequests = 0;
+let holdCheck = false;
+let releaseCheck: (() => void) | undefined;
 let runRequests = 0;
 let holdRun = false;
 let releaseRun: (() => void) | undefined;
@@ -110,6 +113,8 @@ await page.route("**/api/**", async (route) => {
       data = { ok: true };
     } else data = { content: code[url.searchParams.get("path")!] };
   } else if (path.endsWith("/check")) {
+    checkRequests++;
+    if (holdCheck) await new Promise<void>((resolve) => { releaseCheck = resolve; });
     meta.lastChecks = { at: "", passed: false, sandboxed: true, results: [{ command: "go test", exitCode: 1, durationMs: 1, timedOut: false, output: "./solution.go:6:2: undefined: missing" }] };
     data = { meta, firstPass: false, checks: meta.lastChecks };
   }
@@ -139,8 +144,8 @@ try {
   const caret = (text: string) => page.locator(".caret-status").filter({ hasText: text }).waitFor();
   await saved();
   assert.ok(meta.practice, "fixture publishes validated optional sample metadata");
-  assert.equal(await page.getByRole("button", { name: "Run", exact: true }).count(), 0, "metadata alone never advertises practice execution");
-  assert.equal(await page.getByRole("button", { name: /Run checks/ }).isEnabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Run", exact: true }).count(), 1, "metadata alone never advertises practice execution");
+  assert.equal(await page.getByRole("button", { name: /^Submit$/ }).isEnabled(), true);
   const casesPanel = page.getByRole("tabpanel", { name: "Testcases", exact: true });
   const caseTabs = page.getByRole("tablist", { name: "Test cases", exact: true });
   const input = casesPanel.getByRole("textbox", { name: /^n integer/ });
@@ -168,7 +173,7 @@ try {
   await casesSaved();
   assert.equal(await input.getAttribute("aria-invalid"), "true");
   assert.match(await casesPanel.innerText(), /Invalid inputs cannot run/);
-  assert.equal(await page.getByRole("button", { name: /Run checks/ }).isEnabled(), true, "case validation never blocks canonical checks");
+  assert.equal(await page.getByRole("button", { name: /^Submit$/ }).isEnabled(), true, "case validation never blocks canonical checks");
   await page.reload();
   await casesSaved();
   assert.equal(await input.inputValue(), "{");
@@ -421,7 +426,7 @@ try {
   await page.getByRole("option", { name: /Println/ }).waitFor();
   await page.keyboard.press("Escape");
   await replace('package lesson\nimport "fmt"\n\nfunc main() {\n\n missing()\n}\n');
-  await page.getByRole("button", { name: /Run checks/ }).click();
+  await page.getByRole("button", { name: /^Submit$/ }).click();
   await page.getByRole("button", { name: /solution.go:6:2.*undefined: missing/ }).waitFor();
   await openFile("solution.ts");
   await page.getByRole("button", { name: /solution.go:6:2.*undefined: missing/ }).click();
@@ -486,7 +491,7 @@ try {
     const r = (await reading.boundingBox())!;
     const c = (await codePane.boundingBox())!;
     assert.ok(r.width >= 220 && c.width >= 300 && r.x + r.width <= c.x, "reading and code remain side by side");
-    const toolbar = (await page.getByRole("button", { name: /Run checks/ }).boundingBox())!;
+    const toolbar = (await page.getByRole("button", { name: /^Submit$/ }).boundingBox())!;
     assert.ok(toolbar.y >= 0 && toolbar.y + toolbar.height <= viewport.height);
     await page.locator("#reading-description").evaluate((e) => { e.scrollTop = 500; });
     assert.ok(await page.locator("#reading-description").evaluate((e) => e.scrollTop) > 0);
@@ -695,7 +700,7 @@ try {
   await page.locator(".cm-content").waitFor();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await casesSaved();
-  const runButton = () => casesPanel.getByRole("button", { name: "Run selected case", exact: true });
+  const runButton = () => page.getByRole("button", { name: "Run", exact: true });
   await openFile("helpers.ts");
   await replace("export function double(n: number) { return n * 2; }\n// practice edit");
   const chatCount = chats.length;
@@ -703,9 +708,9 @@ try {
   holdRun = true;
   const callsBefore = runRequests;
   await runButton().click();
-  await page.getByRole("button", { name: "Running selected case…" }).waitFor();
+  await casesPanel.getByText("Running selected case…", { exact: true }).waitFor();
   assert.equal(runRequests, callsBefore, "run waits for pending code saves");
-  assert.equal(await page.getByRole("button", { name: "Running selected case…" }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Run", exact: true }).isDisabled(), true);
   const dispatchedRun = page.waitForRequest((req) => req.url().endsWith("/run") && req.method() === "POST");
   holdSaves = false;
   heldSaves.splice(0).forEach((resolve) => resolve());
@@ -741,18 +746,38 @@ try {
   assert.equal(await runButton().isDisabled(), true);
   await input.fill("6");
   failSavePath = "helpers.ts";
+  await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("code");
   const runCount = runRequests;
   await runButton().click();
   await casesPanel.getByRole("alert").filter({ hasText: "Fixture disk full" }).waitFor();
   assert.equal(runRequests, runCount, "failed code saves cannot dispatch practice");
+  assert.equal(await page.locator(".workbench > .error").filter({ hasText: "Fixture disk full" }).isVisible(), true, "toolbar run failures stay visible from focused Code layout");
   failSavePath = undefined;
   assert.equal(chats.length, chatCount, "practice never fires grading coach triggers");
+  await openFile("helpers.ts");
+  await page.locator(".cm-content").click();
+  const previousChecks = checkRequests;
+  const keyboardRun = page.waitForRequest(req => req.url().endsWith("/run") && req.method() === "POST");
+  await page.keyboard.press("Control+Shift+Enter");
+  await keyboardRun;
+  await page.waitForResponse(r => r.url().endsWith("/run") && r.request().method() === "POST");
+  assert.equal(checkRequests, previousChecks, "practice shortcut never submits canonical checks");
+  holdCheck = true;
+  await page.locator(".cm-content").click();
+  const keyboardSubmit = page.waitForRequest(req => req.url().endsWith("/check"));
+  await page.keyboard.press("Control+Enter");
+  await keyboardSubmit;
+  assert.equal(await page.getByRole("button", { name: "Run", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Submit", exact: true }).isDisabled(), true);
+  holdCheck = false; releaseCheck!();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  console.log("PASS: visible Run/Submit and distinct shortcuts, canonical isolation and execution lock");
   practiceEnabled = false;
   await page.reload();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await casesPanel.getByText("Fixture runner has no practice capability", { exact: true }).waitFor();
   assert.equal(await runButton().isDisabled(), true);
-  assert.equal(await page.getByRole("button", { name: /Run checks/ }).isEnabled(), true);
+  assert.equal(await page.getByRole("button", { name: /^Submit$/ }).isEnabled(), true);
   console.log("PASS: practice saves code first, bounds input, blocks duplicates, marks stale results and preserves canonical checks/coaching");
   console.log("PASS: narrow layout, dark theme, no browser errors");
 } catch (error) {
