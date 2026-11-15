@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { api, type Checks, type Help, type Job, type LessonFile, type LessonMeta, type LessonSummary, load, type Me, save, type TrackState } from "./api.ts";
 import { go, href } from "./App.tsx";
 import { Coach, fireTrigger, type PromptVars } from "./Coach.tsx";
-import { Editor } from "./Editor.tsx";
+import { type Caret, Editor, fileLanguage } from "./Editor.tsx";
 import { summarize } from "./checks.ts";
 import { Md } from "./Md.tsx";
 import { ConfirmButton, LockIcon, RUN_KEY, StatusIcon, tabKeys, useMedia } from "./ui.tsx";
@@ -95,6 +95,7 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
             preview={Boolean(state.track.runner === "container" && state.track.environment?.preview)}
             runnerOk={runner?.ok ?? true}
             runnerDetail={runner?.detail}
+            runtimeLabel={runner?.label ?? state.track.runner}
             sandboxed={props.me.sandbox.sandboxed}
             onMeta={(meta) => setLesson((l) => (l ? { ...l, meta } : l))}
             onFiles={(files) => setLesson((l) => (l ? { ...l, files } : l))}
@@ -286,7 +287,7 @@ function NoLessons(props: { state: TrackState; onJob: (j: Job) => void }) {
 
 export type WorkbenchHandle = { vars: () => PromptVars; saveAll: () => Promise<void> };
 
-type FileState = { content: string; saved: string; loaded: boolean };
+type FileState = { content: string; saved: string; loaded: boolean; saving?: boolean; saveError?: string | undefined };
 
 const startedKey = "study-coach:started-lessons";
 
@@ -308,6 +309,7 @@ const Workbench = forwardRef<
     preview: boolean;
     runnerOk: boolean;
     runnerDetail: string | undefined;
+    runtimeLabel: string;
     sandboxed: boolean;
     onMeta: (m: LessonMeta) => void;
     onFiles: (f: LessonFile[]) => void;
@@ -331,7 +333,8 @@ const Workbench = forwardRef<
   const [contents, setContents] = useState<Record<string, FileState>>({});
   const [checks, setChecks] = useState<Checks | undefined>(meta.lastChecks);
   const [running, setRunning] = useState(false);
-  const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [caret, setCaret] = useState<Caret>();
+  const saves = useRef(new Map<string, Promise<void>>());
   const [error, setError] = useState<string>();
   const [hints, setHints] = useState(0);
   const [solution, setSolution] = useState<{ path: string; content: string }[]>();
@@ -353,6 +356,11 @@ const Workbench = forwardRef<
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const contentsRef = useRef(contents);
   contentsRef.current = contents;
+  const updateContents = (update: (c: Record<string, FileState>) => Record<string, FileState>) => {
+    const next = update(contentsRef.current);
+    contentsRef.current = next;
+    setContents(next);
+  };
   const sourceFiles = useMemo(() => Object.entries(contents).filter(([, f]) => f.loaded).map(([path, f]) => ({ path, content: f.content })), [contents]);
   const prepareLanguage = useCallback((path?: string, content?: string) => {
     const sources = Object.entries(contentsRef.current).filter(([p, f]) => f.loaded && typedFile(p)).map(([p, f]) => ({ path: p, content: path === p && content !== undefined ? content : f.content }));
@@ -389,7 +397,7 @@ const Workbench = forwardRef<
     for (const f of allFiles) {
       if (contentsRef.current[f.path]?.loaded) continue;
       api.readFile(track, meta.id, f.path).then(
-        ({ content }) => alive && setContents((c) => ({ ...c, [f.path]: c[f.path]?.loaded ? c[f.path]! : { content, saved: content, loaded: true } })),
+        ({ content }) => alive && updateContents((c) => ({ ...c, [f.path]: c[f.path]?.loaded ? c[f.path]! : { content, saved: content, loaded: true } })),
         (e) => alive && setError(e.message),
       );
     }
@@ -409,19 +417,27 @@ const Workbench = forwardRef<
     return () => clearTimeout(t);
   }, [track, meta.id, meta.status]);
 
-  const saveFile = async (path: string) => {
+  const saveFile = async (path: string): Promise<void> => {
+    // Serialize writes per file; an older response must not overwrite a newer save.
+    const pending = saves.current.get(path);
+    if (pending) { await pending; return saveFile(path); }
     const f = contentsRef.current[path];
     if (!f || f.content === f.saved) return;
-    setSaving("saving");
-    try {
-      await api.writeFile(track, meta.id, path, f.content);
-      setContents((c) => ({ ...c, [path]: { ...c[path]!, saved: f.content } }));
-      setSaving("saved");
-    } catch (e) {
-      setSaving("error");
-      setError((e as Error).message);
-      throw e;
-    }
+    updateContents((c) => ({ ...c, [path]: { ...c[path]!, saving: true, saveError: undefined } }));
+    const request = (async () => {
+      try {
+        await api.writeFile(track, meta.id, path, f.content);
+        updateContents((c) => ({ ...c, [path]: { ...c[path]!, saved: f.content, saving: false } }));
+      } catch (e) {
+        const message = (e as Error).message;
+        updateContents((c) => ({ ...c, [path]: { ...c[path]!, saving: false, saveError: message } }));
+        throw e;
+      } finally {
+        saves.current.delete(path);
+      }
+    })();
+    saves.current.set(path, request);
+    return request;
   };
   const saveAll = async () => {
     clearTimeout(timer.current);
@@ -439,19 +455,24 @@ const Workbench = forwardRef<
     setTypedProblems([]);
     setLocalProblems((old) => { const next = { ...old }; delete next[path]; return next; });
     setPreview((p) => ({ ...p, stale: true }));
-    setContents((c) => ({ ...c, [path]: { ...c[path]!, content: value } }));
-    setSaving("idle");
+    updateContents((c) => ({ ...c, [path]: { ...c[path]!, content: value, saveError: undefined } }));
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => void saveFile(path).catch(() => {}), 1200);
+    timer.current = setTimeout(() => {
+      void Promise.allSettled(allFiles.filter((f) => f.editable).map((f) => saveFile(f.path)));
+    }, 1200);
   };
 
   const run = async () => {
     if (running) return;
     setError(undefined);
     if (props.graded) {
-      await saveAll();
-      fireTrigger("grade");
-      props.askCoach();
+      try {
+        await saveAll();
+        fireTrigger("grade");
+        props.askCoach();
+      } catch (e) {
+        setError((e as Error).message);
+      }
       return;
     }
     setRunning(true);
@@ -500,6 +521,7 @@ const Workbench = forwardRef<
   const selectTab = (t: string) => {
     setGotoLine(undefined);
     setTab(t);
+    if (t !== tab) setCaret(undefined);
     if (t !== "preview") save(`study-coach:tab:${track}:${meta.id}`, t);
     if (t === "preview" && preview.stale && !preview.building) void buildPreview();
   };
@@ -510,7 +532,7 @@ const Workbench = forwardRef<
       await api.newFile(track, meta.id, path);
       setChecksStale(true);
       setExtraFiles((x) => [...x, { path, editable: true, role: "starter", added: true }]);
-      setContents((c) => ({ ...c, [path]: { content: "", saved: "", loaded: true } }));
+      updateContents((c) => ({ ...c, [path]: { content: "", saved: "", loaded: true } }));
       setAdding(undefined);
       selectTab(path);
     } catch (e) {
@@ -523,7 +545,7 @@ const Workbench = forwardRef<
       await api.deleteFile(track, meta.id, path);
       setChecksStale(true);
       setExtraFiles((x) => x.filter((f) => f.path !== path));
-      setContents((c) => {
+      updateContents((c) => {
         const { [path]: _gone, ...rest } = c;
         return rest;
       });
@@ -539,6 +561,12 @@ const Workbench = forwardRef<
 
   const dirty = allFiles.some((f) => contents[f.path] && contents[f.path]!.content !== contents[f.path]!.saved);
   const current = tab === "preview" ? undefined : allFiles.find((f) => f.path === tab);
+  const saving = Object.values(contents).some((f) => f.saving);
+  const saveError = allFiles.find((f) => contents[f.path]?.saveError);
+  const saveStatus = saving ? "Saving…" : saveError ? `Save failed: ${saveError.path}` : dirty ? "Unsaved changes" : current && contents[current.path]?.loaded ? "Saved" : "";
+  const runtime = props.state.track.runner === "container" ? props.state.track.environment?.image ?? "Container" :
+    ["typescript", "javascript"].includes(props.state.track.runner) ? "Node 24" : props.state.track.runner === "written" ? "Coach grading" :
+    props.state.track.runner === "custom" ? "Custom command" : props.runtimeLabel;
   const summary = checks ? summarize(checks) : undefined;
   const jumpToProblem = (problem: CodeProblem) => {
     const file = sourceFiles.find((f) => f.path === problem.path);
@@ -550,15 +578,11 @@ const Workbench = forwardRef<
 
   return (
     <article className="workbench" aria-label={meta.title}>
-      <p id="editor-help" className="sr-only">Ctrl or Command D selects the next matching word for editing with multiple cursors. Alt-drag selects a rectangle. Control Space opens autocomplete. Hover over a symbol for documentation.</p>
       <div className="actions">
         <button type="button" className="primary" onClick={() => void run()} disabled={running || (!props.graded && !props.runnerOk)} title={props.runnerOk ? undefined : props.runnerDetail}>
           {running ? "Running…" : props.graded ? "Submit for grading" : "Run checks"}
           {!running && <kbd>{RUN_KEY}</kbd>}
         </button>
-        <span className="small muted save-state" aria-live="polite">
-          {saving === "saving" ? "Saving…" : saving === "error" ? "Not saved" : dirty ? "Unsaved changes" : saving === "saved" ? "Saved" : ""}
-        </span>
         {summary && (
           <button type="button" className={`check-summary ${checks!.passed ? "ok" : "bad"}`} aria-expanded={outputOpen} onClick={() => { setResultTab("output"); setOutputOpen(!outputOpen || resultTab !== "output"); }}>
             <StatusIcon status={checks!.passed ? "passed" : "failed"} /> {summary}
@@ -677,7 +701,16 @@ const Workbench = forwardRef<
         </section>
         {!props.narrow && <ResizeHandle label="Resize description panel" value={descriptionWidth} min={220} max={640} onChange={setDescriptionWidth} />}
         <section className="code-pane" aria-label="Code" hidden={props.narrow && props.pane !== "code"}>
-          <h2 className="code-heading">Code</h2>
+          <div className="editor-toolbar">
+            <h2 className="code-heading">Code</h2>
+            {current && <><span className="active-file">{current.path}</span><span className="file-language muted">{fileLanguage(current.path)}</span></>}
+            <span className="small muted">Checks: {runtime}</span>
+            {current && !current.editable && <span className="pill">Read-only</span>}
+            <details className="keyboard-help">
+              <summary>Keyboard help</summary>
+              <p id="editor-help">Ctrl/Cmd+S saves the active file. Ctrl/Cmd+Enter {props.graded ? "submits for coach grading" : "runs checks"}. Ctrl+Space opens completion; Enter accepts. Ctrl/Cmd+D selects the next matching word; Alt-drag selects a rectangle. Tab indents and Shift+Tab unindents. Press Escape, then Tab to leave the editor. Ctrl+M (Option+Shift+M on macOS) toggles Tab focus mode. Hover over a symbol for documentation.</p>
+            </details>
+          </div>
           <div className="tabs" role="tablist" aria-label="Lesson">
             {allFiles.map((f) => {
               const c = contents[f.path];
@@ -745,12 +778,19 @@ const Workbench = forwardRef<
                 onSave={() => void saveFile(current.path).catch(() => {})}
                 onRun={() => void run()}
                 onSelect={(t) => (selection.current = t)}
+                onCaret={setCaret}
               />
             ) : (
               <p className="loading">Loading…</p>
             )}
           </div>
 
+          <div className="editor-status small">
+            <span className="save-state" role="status">{saveStatus}</span>
+            <span className="spacer" />
+            {current && caret && <span className="caret-status" aria-label="Caret position">Ln {caret.line}, Col {caret.column}{caret.cursors > 1 ? ` · ${caret.cursors} cursors` : ""}</span>}
+          </div>
+          {saveError && <p className="error small" role="alert">{contents[saveError.path]?.saveError} — Ctrl/Cmd+S retries the active file; Run checks saves all files first.</p>}
           <div className="results-toolbar" role="tablist" aria-label="Results">
             <button type="button" role="tab" aria-selected={resultTab === "problems" && outputOpen} aria-controls="lesson-problems" onClick={() => { setResultTab("problems"); setOutputOpen(true); }}>Problems ({problems.length})</button>
             <button type="button" role="tab" aria-selected={resultTab === "output" && outputOpen} aria-controls="lesson-output" onClick={() => { setResultTab("output"); setOutputOpen(true); }}>Check output</button>

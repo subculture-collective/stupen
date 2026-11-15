@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright-core";
-import type { LessonMeta, Me, Track, TrackState } from "../web/src/api.ts";
+import type { ChatBody, LessonMeta, Me, Track, TrackState } from "../web/src/api.ts";
 
 const base = process.env.BASE ?? "http://127.0.0.1:5198";
 const prefix = new URL(base).pathname.replace(/\/$/, "");
@@ -20,8 +20,16 @@ const code: Record<string, string> = {
 };
 const track: Track = { id: "editor-check", title: "Editor checks", subject: "Programming", runner: "typescript", level: "beginner", goals: "Practise", background: "", style: "", sessionMinutes: 20, defaultCeiling: 0, provider: "claude", web: false, createdAt: "", updatedAt: "" };
 const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.\n\n" + "Read this lesson while coding.\n\n".repeat(80), hints: [], sources: [], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
-const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [{ ...meta, help: null, lastPassed: null }], materials: [], jobs: [] };
+const second: LessonMeta = { ...meta, id: "02-editor", title: "Next editor lesson", objective: "Next lesson context" };
+const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [meta, second].map((lesson) => ({ ...lesson, help: null, lastPassed: null })), materials: [], jobs: [] };
 const me: Me = { user: "fixture", authMode: "proxy", isAdmin: false, sandbox: { sandboxed: true, detail: "Fixture" }, docker: { ok: false }, runners: [{ id: "typescript", label: "TypeScript", syntax: "typescript", layout: "", graded: null, ok: true }], environments: [], levels: [] };
+
+let holdSaves = false;
+let failNextSave = false;
+let failSavePath: string | undefined;
+const heldSaves: (() => void)[] = [];
+const writes: { path: string; content: string }[] = [];
+const chats: ChatBody[] = [];
 
 await page.route("**/api/**", async (route) => {
   const url = new URL(route.request().url());
@@ -34,10 +42,23 @@ await page.route("**/api/**", async (route) => {
   else if (path === "/api/tracks") data = [track];
   else if (path === "/api/prompts") data = { prompts: [], triggers: {}, placeholders: {} };
   else if (path === "/api/tracks/editor-check") data = state;
+  else if (path.endsWith("/02-editor")) data = { meta: second, files: second.files.map((f) => ({ ...f, editable: f.role !== "test" })), help: null };
+  else if (path === "/api/chat") {
+    chats.push(route.request().postDataJSON() as ChatBody);
+    await route.fulfill({ contentType: "text/event-stream", body: 'event: delta\ndata: {"text":"Fixture coach response"}\n\nevent: done\ndata: {"assist":null,"verdict":null,"help":null,"aborted":false}\n\n' });
+    return;
+  }
   else if (path.endsWith("/01-editor")) data = { meta, files: meta.files.map((f) => ({ ...f, editable: f.role !== "test" })), help: null };
   else if (path.endsWith("/file")) {
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON() as { path: string; content: string };
+      writes.push(body);
+      if (holdSaves) await new Promise<void>((resolve) => heldSaves.push(resolve));
+      if (failNextSave || body.path === failSavePath) {
+        failNextSave = false;
+        await route.fulfill({ status: 500, json: { error: "Fixture disk full" } });
+        return;
+      }
       code[body.path] = body.content;
       data = { ok: true };
     } else data = { content: code[url.searchParams.get("path")!] };
@@ -62,6 +83,75 @@ const waitFor = (test: () => boolean) => page.waitForFunction(test, undefined, {
 try {
   await page.goto(`${base}/#/t/${track.id}/learn/${meta.id}`);
   await page.locator(".cm-content").waitFor();
+  const saved = () => page.locator(".save-state").filter({ hasText: /^Saved$/ }).waitFor();
+  const caret = (text: string) => page.locator(".caret-status").filter({ hasText: text }).waitFor();
+  await saved();
+  assert.match(await page.locator(".editor-toolbar").innerText(), /solution.ts.*TypeScript/s);
+  assert.match(await page.locator(".editor-toolbar").innerText(), /Checks: Node 24/);
+  assert.equal(await page.locator(".editor-toolbar select").count(), 0);
+  await caret("Ln 1, Col 1");
+  await page.getByText("Keyboard help", { exact: true }).click();
+  assert.match(await page.locator("#editor-help").innerText(), /Ctrl\/Cmd\+S saves.*Escape, then Tab/s);
+  await page.getByText("Keyboard help", { exact: true }).click();
+  const original = code["solution.ts"]!;
+  holdSaves = true;
+  await replace("const saved = 1;\n");
+  await page.locator(".save-state").filter({ hasText: "Unsaved changes" }).waitFor();
+  await page.keyboard.press("Control+s");
+  await page.locator(".save-state").filter({ hasText: "Saving…" }).waitFor();
+  await page.keyboard.insertText("// Newer edit\n");
+  await page.keyboard.press("Control+s");
+  assert.equal(heldSaves.length, 1, "same-file saves serialize");
+  const latest = await page.locator(".cm-content").innerText();
+  holdSaves = false;
+  heldSaves.shift()!();
+  await saved();
+  assert.equal(code["solution.ts"]!.trim(), latest.trim(), "newer edit remains dirty until its own save completes");
+
+  failNextSave = true;
+  await replace("const retry = 2;\n");
+  await page.keyboard.press("Control+s");
+  await page.locator(".save-state").filter({ hasText: "Save failed: solution.ts" }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "Fixture disk full" }).waitFor();
+  assert.notEqual(code["solution.ts"], "const retry = 2;\n");
+  await page.keyboard.press("Control+s");
+  await saved();
+  assert.equal(code["solution.ts"], "const retry = 2;\n");
+
+  // A persistent failure in an earlier file must not prevent another file's autosave.
+  failSavePath = "solution.ts";
+  await replace(original);
+  await openFile("helpers.ts");
+  const helperSaved = page.waitForResponse((response) => response.url().endsWith("/file") && response.request().method() === "PUT" && response.request().postDataJSON().path === "helpers.ts");
+  await replace("export const helper = 3;\n");
+  await helperSaved;
+  await page.locator(".save-state").filter({ hasText: "Save failed: solution.ts" }).waitFor();
+  assert.notEqual(code["solution.ts"], original);
+  assert.equal(code["helpers.ts"], "export const helper = 3;\n");
+  failSavePath = undefined;
+  await openFile("solution.ts");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Control+s");
+  await saved();
+  assert.equal(code["solution.ts"], original);
+  assert.ok(writes.length >= 5);
+  await openFile("solution.ts");
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.locator(".cm-content").evaluate((e) => e === document.activeElement), false, "Escape then Tab leaves the editor");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Control+m");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.locator(".cm-content").evaluate((e) => e === document.activeElement), false, "Tab focus mode leaves the editor");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Control+m");
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("Tab");
+  assert.match(await page.locator(".cm-content").innerText(), /^  /, "Tab indents when focus mode is off");
+  await page.keyboard.press("Shift+Tab");
+  assert.match(await page.locator(".cm-content").innerText(), /^const/);
+  console.log("PASS: honest language/runtime, loaded/saving/unsaved/failure/retry status, serialized saves, cross-file autosave and keyboard focus exit");
   await page.getByRole("tab", { name: /^Problems/ }).click();
   await page.getByRole("button", { name: /solution.ts:1:.*Type 'string' is not assignable/ }).waitFor({ timeout: 30_000 });
   assert.ok(await page.locator(".cm-lintRange-error").count(), "TypeScript error underline");
@@ -84,12 +174,19 @@ try {
   for (let n = 0; n < 6; n++) await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Control+d");
   await page.keyboard.press("Control+d");
+  await caret("2 cursors");
   await page.keyboard.insertText("total");
   assert.match(await page.locator(".cm-content").innerText(), /const total = 1;\nconsole.log\(total\)/);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Control+Home");
   for (let n = 0; n < 7; n++) await page.keyboard.press("ArrowRight");
   await waitFor(() => document.querySelectorAll(".cm-selectionMatch").length > 0);
+  await caret("Ln 1, Col 8");
+  await openFile("helpers.ts");
+  await openFile("solution.ts");
+  await caret("Ln 1, Col 8");
+  await openFile("solution.ts");
+  await caret("Ln 1, Col 8");
 
   await replace("");
   await page.keyboard.type("(");
@@ -102,6 +199,8 @@ try {
   console.log("PASS: TypeScript completion, hover, diagnostics, multiple cursors, word matches, bracket/quote closing");
 
   await openFile("solution.go");
+  assert.equal(await page.locator(".file-language").innerText(), "Go");
+  await caret("Ln 1, Col 1");
   await page.locator(".cm-line").filter({ hasText: "fmt.Println" }).getByText("Println", { exact: true }).hover();
   await page.locator(".code-documentation").filter({ hasText: /newline/i }).waitFor();
   await replace('package lesson\nimport "fmt"\nfunc main() { fmt.Pri');
@@ -115,11 +214,14 @@ try {
   await page.getByRole("button", { name: /solution.go:6:2.*undefined: missing/ }).click();
   assert.equal(await page.getByRole("tab", { name: "solution.go", exact: true }).getAttribute("aria-selected"), "true");
   assert.ok(await page.locator(".cm-lintRange-error").count());
+  await caret("Ln 6, Col 2");
   await page.keyboard.insertText(" ");
   await waitFor(() => !document.querySelector(".problem-location")?.textContent?.includes("solution.go:6:2"));
   console.log("PASS: Go standard library completion/docs, check diagnostics, cross-file problem navigation, stale checks");
 
   await openFile("solution.py");
+  assert.equal(await page.locator(".file-language").innerText(), "Python");
+  await caret("Ln 1, Col 1");
   await page.locator(".cm-line").filter({ hasText: "print(len" }).getByText("len", { exact: true }).hover();
   await page.locator(".code-documentation").filter({ hasText: /number of items/ }).waitFor();
   await replace("values = [1, 2]\nle");
@@ -196,6 +298,8 @@ try {
   console.log("PASS: split desktop sizes, independent reading scroll, persistent toolbar, Problem List route and folded coach state");
 
   await openFile("solution.test.ts");
+  assert.match(await page.locator(".editor-toolbar").innerText(), /Read-only/);
+  await caret("Ln 1, Col 1");
   const before = await page.locator(".cm-content").innerText();
   await page.locator(".cm-content").click();
   await page.keyboard.type("cannot edit");
@@ -230,11 +334,25 @@ try {
   assert.equal(await page.getByRole("tab", { name: "Description", exact: true }).getAttribute("aria-selected"), "true");
   await page.getByRole("tab", { name: "Code", exact: true }).click();
   await page.screenshot({ path: "captures/editor-phone.png" });
+  // Selecting a different lesson changes both the route and the coach request context.
+  await page.getByRole("button", { name: "Problem List", exact: true }).click();
+  await page.getByRole("link", { name: "Next editor lesson" }).click();
+  await page.waitForURL(/learn\/02-editor$/);
+  await page.getByRole("tab", { name: "Description", exact: true }).click();
+  await page.getByRole("heading", { name: second.title, exact: true }).waitFor();
+  await page.getByRole("tab", { name: "Coach", exact: true }).click();
+  assert.equal(await page.getByRole("combobox", { name: "Help limit" }).inputValue(), "0");
+  await draft.fill("Check the second lesson context");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByText("Fixture coach response", { exact: true }).waitFor();
+  assert.equal(chats.at(-1)?.lesson, second.id);
+  assert.equal(chats.at(-1)?.ceiling, 0);
   assert.deepEqual(errors, []);
   console.log("PASS: narrow layout, dark theme, no browser errors");
 } catch (error) {
   mkdirSync("captures", { recursive: true });
-  await page.screenshot({ path: "captures/editor-failure.png" });
+  console.error("Verification failure:", error);
+  await page.screenshot({ path: "captures/editor-failure.png" }).catch((captureError) => console.error("Failure capture:", captureError.message));
   console.error(await page.locator(".results-panel").innerText().catch(() => "No results panel"));
   console.error("Browser errors:", errors);
   throw error;

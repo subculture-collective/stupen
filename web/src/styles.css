@@ -906,7 +906,33 @@ a {
 .code-heading {
   font-size: 13px;
   margin: 0;
-  padding: 6px 12px;
+}
+.editor-toolbar, .editor-status {
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.editor-toolbar { position: relative; font-size: 12px; border-bottom: 1px solid var(--line); }
+.active-file { font-family: var(--mono); overflow-wrap: anywhere; }
+.editor-status { border-top: 1px solid var(--line); color: var(--muted); }
+.caret-status { font-variant-numeric: tabular-nums; }
+.keyboard-help { margin-left: auto; }
+.keyboard-help summary { cursor: pointer; }
+.keyboard-help p {
+  position: absolute;
+  z-index: 5;
+  right: 10px;
+  top: 100%;
+  width: 340px;
+  max-width: calc(100% - 20px);
+  padding: 12px;
+  margin: 6px 0 0;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
 }
 .lesson-head {
   display: flex;
