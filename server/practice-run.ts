@@ -1,3 +1,4 @@
+import { GO_TYPES } from "./practice-go.ts";
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
@@ -36,7 +37,7 @@ export function validatePracticeRequest(input: unknown, p: Practice): PracticeRe
 }
 
 export function practiceFile(path: string): boolean {
-  return safeRel(path) && !path.split("/").some((s) => s.startsWith(HARNESS) || ["node_modules", "vendor", "dist", "target", "tests", "test", "spec"].includes(s)) && !/(^|[./_-])(test|tests|spec)([./_-]|$)/i.test(path) && !/(^|\/)conftest\.py$/.test(path) && (/\.(ts|mts|js|mjs|json|py)$/.test(path));
+  return safeRel(path) && !path.split("/").some((s) => (s.startsWith(HARNESS) || s.startsWith("stupen_practice")) || ["node_modules", "vendor", "dist", "target", "tests", "test", "spec"].includes(s)) && !/(^|[./_-])(test|tests|spec)([./_-]|$)/i.test(path) && !/(^|\/)conftest\.py$/.test(path) && !/_test\.go$/.test(path) && (/\.(ts|mts|js|mjs|json|py|go)$/.test(path) || path === "go.mod" || path === "go.sum");
 }
 
 /** The same explicit source allowlist is used before local execution and transport. */
@@ -44,7 +45,8 @@ export async function packPractice(dir: string, files: { path: string; role: str
   const packed: Record<string, string> = {};
   let total = 0;
   for (const f of files) {
-    if (f.path.split("/").some((s) => s.startsWith(HARNESS))) throw new HttpError(400, "Reserved practice harness file name.");
+    if (f.path.split("/").at(-1) === GO_TYPES && f.role === "support") continue;
+    if (f.path.split("/").some((s) => s.startsWith(HARNESS) || s.startsWith("stupen_practice"))) throw new HttpError(400, "Reserved practice harness file name.");
     if (!["starter", "support"].includes(f.role) || !practiceFile(f.path)) continue;
     let full = dir;
     for (const part of f.path.split("/")) {
@@ -70,7 +72,7 @@ export async function packPractice(dir: string, files: { path: string; role: str
 export function validatePracticePackage(input: unknown): { runtime: string; practice: Practice; request: PracticeRequest; files: Record<string, string> } {
   require(fields(input, ["runtime", "practice", "request", "files"]), "Unexpected runner practice fields.");
   const i = input as { runtime: string; practice: Practice; request: PracticeRequest; files: Record<string, string> };
-  if (!["typescript", "javascript", "python"].includes(i.runtime)) throw new HttpError(422, "This practice runtime is not implemented.");
+  if (!["typescript", "javascript", "python", "go"].includes(i.runtime)) throw new HttpError(422, "This practice runtime is not implemented.");
   require(fields(i.files, [], Object.keys(i.files ?? {})) && Object.keys(i.files).length <= 1000, "Invalid practice source package.");
   let total = 0;
   for (const [path, data] of Object.entries(i.files)) {

@@ -1,6 +1,7 @@
+import { goHarness, GO_RESULT_BYTES } from "./practice-go.ts";
 import { pythonHarness } from "./practice-python.ts";
 import { constants } from "node:fs";
-import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { PracticeResult, PracticeRun } from "../shared/practiceRun.ts";
@@ -33,8 +34,19 @@ export async function runPractice(input: unknown, signal?: AbortSignal): Promise
     const sources = Object.keys(i.files).filter((f) => /\.(ts|mts|js|mjs)$/.test(f)).map((f) => `./${f}`);
     const compileDeadline = Math.min(deadline, Date.now() + 20_000);
     let build: PracticeProcess | undefined;
+    let binary: Buffer | undefined;
     if (i.runtime === "typescript") {
       build = await practiceProcess(compileDir, [join(config.appDir, "node_modules/.bin/tsc"), "--noEmit", "--strict", "--target", "ES2023", "--module", "nodenext", "--moduleResolution", "nodenext", "--allowImportingTsExtensions", "--erasableSyntaxOnly", "--noUncheckedIndexedAccess", "--skipLibCheck", "--types", "node", "--typeRoots", join(config.appDir, "node_modules/@types"), ...sources.filter((f) => /\.(ts|mts)$/.test(f))], compileDeadline - Date.now(), 16_384, signal);
+    } else if (i.runtime === "go") {
+      if (!i.files["go.mod"]) await writeFile(join(compileDir, "go.mod"), "module lesson\n\ngo 1.24\n");
+      const generated = goHarness(i.practice);
+      for (const [path, source] of Object.entries(generated)) {
+        await mkdir(dirname(join(compileDir, path)), { recursive: true });
+        await writeFile(join(compileDir, path), source);
+      }
+      build = await practiceProcess(compileDir, ["gofmt", "-w", ...Object.keys(generated)], compileDeadline - Date.now(), 16_384, signal);
+      if (build.exitCode === 0) build = await practiceProcess(compileDir, ["go", "build", "-o", `${HARNESS}_binary`, `./${HARNESS}_cmd`], compileDeadline - Date.now(), 16_384, signal);
+      if (build.exitCode === 0) binary = await readFile(join(compileDir, `${HARNESS}_binary`));
     } else if (i.runtime === "python") {
       build = await practiceProcess(compileDir, [join(config.toolsDir, "py/bin/python"), "-c", "import pathlib,sys; [compile(pathlib.Path(p).read_text(encoding='utf-8'), p, 'exec') for p in sys.argv[1:]]", ...Object.keys(i.files).filter((f) => f.endsWith(".py"))], compileDeadline - Date.now(), 16_384, signal);
     } else {
@@ -56,27 +68,30 @@ export async function runPractice(input: unknown, signal?: AbortSignal): Promise
         const work = join(base, `case-${n}`);
         await populate(work);
         try {
+          if (binary) await writeFile(join(work, `${HARNESS}_binary`), binary, { mode: 0o700 });
           const harness = i.runtime === "python" ? `${HARNESS}.py` : `${HARNESS}.mjs`;
           await writeFile(join(work, harness), i.runtime === "python" ? pythonHarness : jsHarness);
           await writeFile(join(work, `${HARNESS}_input.json`), JSON.stringify({ entry: i.practice.entry, args: i.practice.inputs.map((f) => c.inputs[f.name]) }));
-          const proc = await practiceProcess(work, [i.runtime === "python" ? join(config.toolsDir, "py/bin/python") : "node", harness], Math.min(2000, deadline - Date.now()), Math.min(16_384, Math.floor(logBudget / 6)), signal);
+          const proc = await practiceProcess(work, i.runtime === "go" ? [`./${HARNESS}_binary`] : [i.runtime === "python" ? join(config.toolsDir, "py/bin/python") : "node", harness], Math.min(2000, deadline - Date.now()), Math.min(16_384, Math.floor(logBudget / 6)), signal);
           logBudget -= jsonBytes(proc.stdout) + jsonBytes(proc.stderr);
           const r = result(c.id, proc.timedOut ? "timeout" : proc.exitCode !== 0 ? "runtime_error" : "invalid_output", proc);
           if (!proc.timedOut && proc.exitCode === 0) {
             try {
+              const wireLimit = i.runtime === "go" ? GO_RESULT_BYTES : PRACTICE_RESULT_BYTES;
               const fd = await open(join(work, `${HARNESS}_result.json`), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
               let text: string;
               try {
                 const info = await fd.stat();
-                if (!info.isFile() || info.size > PRACTICE_RESULT_BYTES || info.size > resultBudget) throw new Error("Invalid output file");
-                const buffer = Buffer.alloc(Math.min(PRACTICE_RESULT_BYTES, resultBudget) + 1);
+                if (!info.isFile() || info.size > wireLimit) throw new Error("Invalid output file");
+                const buffer = Buffer.alloc(wireLimit + 1);
                 const { bytesRead } = await fd.read(buffer);
-                if (bytesRead > PRACTICE_RESULT_BYTES || bytesRead > resultBudget) throw new Error("Oversized output");
+                if (bytesRead > wireLimit) throw new Error("Oversized output");
                 text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
               } finally { await fd.close(); }
-              const envelope = parsePracticeJson(text, PRACTICE_RESULT_BYTES) as { actual?: unknown };
+              const envelope = parsePracticeJson(text, wireLimit) as { actual?: unknown };
               if (!envelope || Object.keys(envelope).length !== 1 || !Object.hasOwn(envelope, "actual")) throw new Error("Missing output");
               validatePracticeValue(envelope.actual, i.practice.output);
+              if (jsonBytes(envelope.actual) > PRACTICE_RESULT_BYTES || jsonBytes(envelope.actual) > resultBudget) throw new Error("Oversized actual output");
               r.actual = envelope.actual as import("../shared/practice.ts").PracticeValue;
               resultBudget -= jsonBytes(r.actual);
               r.status = Object.hasOwn(c, "expected") ? (practiceEqual(r.actual, c.expected) ? "passed" : "failed") : "completed";
