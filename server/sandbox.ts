@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
-import { access, constants, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { access, constants, cp, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import { config } from "./config.ts";
@@ -27,9 +27,10 @@ async function exists(p: string) {
 function detect(): Promise<Toolchain> {
   toolchain ??= (async () => {
     const mise = await run("mise", ["bin-paths"], { timeout: 15_000 }).then((r) => r.stdout.split("\n").filter(Boolean), () => [] as string[]);
+    const nodeDir = dirname(await realpath(process.execPath));
     const cargo = join(home, ".cargo/bin");
-    const path = [...mise, cargo, "/usr/local/bin", "/usr/bin", "/bin"];
-    const binds = [join(home, ".local/share/mise/installs"), join(home, ".rustup"), cargo, config.toolsDir, join(config.appDir, "node_modules")];
+    const path = [nodeDir, ...mise, cargo, "/usr/local/bin", "/usr/bin", "/bin"];
+    const binds = [nodeDir, join(home, ".local/share/mise/installs"), join(home, ".rustup"), cargo, config.toolsDir, join(config.appDir, "node_modules")];
     const env: Record<string, string> = {
       PATH: path.join(":"),
       RUSTUP_HOME: join(home, ".rustup"),
@@ -75,8 +76,8 @@ export async function sandboxStatus(): Promise<{ sandboxed: boolean; detail: str
   return { sandboxed: false, detail: config.sandbox ? "bubblewrap is not installed, so checks run unsandboxed as the server user." : "Sandbox disabled (STUDY_SANDBOX=0): checks run as the server user." };
 }
 
-function bwrapArgs(tc: Toolchain, work: string): string[] {
-  const args = ["--ro-bind", "/", "/"];
+function bwrapArgs(tc: Toolchain, work: string, strict = false): string[] {
+  const args = strict ? ["--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--ro-bind-try", "/lib", "/lib", "--ro-bind-try", "/lib64", "/lib64"] : ["--ro-bind", "/", "/"];
   // Hide everything personal or shared: home folders, sockets, data disks.
   for (const d of ["/home", "/root", "/run", "/tmp", "/var/tmp", "/mnt", "/media", "/srv"]) args.push("--tmpfs", d);
   for (const b of tc.binds) args.push("--ro-bind-try", b, b);
@@ -178,4 +179,58 @@ export async function sandboxed(files: Record<string, Buffer | string>, argv: st
   } finally {
     await rm(work, { recursive: true, force: true });
   }
+}
+
+
+export type PracticeProcess = { exitCode: number | null; stdout: string; stderr: string; durationMs: number; timedOut: boolean; outputTruncated: boolean };
+
+/** Practice always requires isolation, and never inherits app credentials or mounts /etc. */
+export async function practiceProcess(work: string, argv: string[], timeoutMs: number, maxOutput = 16_384, signal?: AbortSignal): Promise<PracticeProcess> {
+  signal?.throwIfAborted();
+  const tc = await detect();
+  if (!tc.bwrap) throw Object.assign(new Error("Practice needs a working bubblewrap sandbox."), { status: 503 });
+  const started = Date.now();
+  return new Promise((resolve, reject) => {
+    const child = spawn("/usr/bin/bwrap", [...bwrapArgs(tc, work, true), ...argv], { cwd: work, env: { PATH: tc.env.PATH! }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    const chunks: { stdout: Buffer[]; stderr: Buffer[] } = { stdout: [], stderr: [] };
+    let size = 0, timedOut = false, outputTruncated = false;
+    const kill = () => { try { process.kill(-child.pid!, "SIGKILL"); } catch { child.kill("SIGKILL"); } };
+    const add = (stream: "stdout" | "stderr", data: Buffer) => {
+      const room = Math.max(0, maxOutput - size);
+      chunks[stream].push(data.subarray(0, room));
+      size += Math.min(room, data.length);
+      if (data.length > room) { outputTruncated = true; kill(); }
+    };
+    child.stdout.on("data", (b: Buffer) => add("stdout", b));
+    child.stderr.on("data", (b: Buffer) => add("stderr", b));
+    signal?.addEventListener("abort", kill, { once: true });
+    if (signal?.aborted) kill();
+    const timer = setTimeout(() => { timedOut = true; kill(); }, Math.max(1, timeoutMs));
+    child.once("error", (e) => { clearTimeout(timer); kill(); reject(e); });
+    child.once("close", (exitCode) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", kill);
+      kill();
+      if (signal?.aborted) { reject(signal.reason); return; }
+      // A clipped UTF-8 sequence must not expand past the byte budget during decoding.
+      const decode = (buffers: Buffer[]) => Buffer.concat(buffers).toString("utf8").replace(/\uFFFD/g, "");
+      resolve({ exitCode, stdout: decode(chunks.stdout), stderr: decode(chunks.stderr), durationMs: Date.now() - started, timedOut, outputTruncated });
+    });
+  });
+}
+
+let practiceReady: Promise<import("../shared/practiceRun.ts").PracticeCapability | undefined> | undefined;
+export function practiceCapability(): Promise<import("../shared/practiceRun.ts").PracticeCapability | undefined> {
+  practiceReady ??= (async () => {
+    if (!(await detect()).bwrap) return;
+    const work = await mkdtemp(join(tmpdir(), "stupen-practice-probe-"));
+    try {
+      if ((await practiceProcess(work, ["node", "-e", "process.exit(Number(process.versions.node.split('.')[0]) < 24 ? 1 : 0)"], 2000)).exitCode !== 0) return;
+      const runtimes = ["javascript"];
+      if ((await practiceProcess(work, [join(config.appDir, "node_modules/.bin/tsc"), "--version"], 2000)).exitCode === 0) runtimes.push("typescript");
+      return { version: 1 as const, runtimes };
+    } catch { return; }
+    finally { await rm(work, { recursive: true, force: true }); }
+  })();
+  return practiceReady;
 }

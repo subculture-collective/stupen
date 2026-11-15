@@ -28,6 +28,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
+      - name: Real local and remote practice sandbox integration
+        run: |
+          docker build -t stupen-practice-fixture:ci -f scripts/practice-fixture.Dockerfile .
+          docker run --rm --privileged --network none \
+            -e PRACTICE_INTEGRATION=1 \
+            -v "$PWD:/workspace:ro" -w /workspace \
+            stupen-practice-fixture:ci node --test server/practice-run.test.ts
 
   ci-gate:
     name: CI gate

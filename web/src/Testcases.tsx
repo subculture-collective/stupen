@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CASE_LIMIT, jsonBytes, parseCaseDrafts, sampleDraft, validateCaseDrafts, type CaseDraft, type CaseDrafts } from "../../shared/cases.ts";
+import type { PracticeRun } from "../../shared/practiceRun.ts";
 import type { Practice } from "../../shared/practice.ts";
 import { api } from "./api.ts";
 import { tabKeys } from "./ui.tsx";
@@ -8,7 +9,18 @@ import { tabKeys } from "./ui.tsx";
 // Only promises live here; learner drafts are not cached across accounts.
 const pendingSaves = new Map<string, Promise<void>>();
 
-export function Testcases({ track, lesson, practice }: { track: string; lesson: string; practice: Practice | undefined }) {
+export function Testcases({ track, lesson, practice, codeVersion, beforeRun }: { track: string; lesson: string; practice: Practice | undefined; codeVersion: string; beforeRun: () => Promise<string> }) {
+  const [capability, setCapability] = useState<{ enabled: boolean; reason: string }>();
+  const [run, setRun] = useState<{ result: PracticeRun; code: string; input: string }>();
+  const [runError, setRunError] = useState<string>();
+  const [running, setRunning] = useState(false);
+  const inFlight = useRef(false);
+  useEffect(() => {
+    if (!practice) return;
+    let active = true;
+    api.practiceAvailability(track, lesson).then((c) => { if (active) setCapability(c); }).catch((e) => { if (active) setCapability({ enabled: false, reason: e.message }); });
+    return () => { active = false; };
+  }, [track, lesson, practice]);
   const [draft, setDraft] = useState<CaseDrafts>();
   const [loadingError, setLoadingError] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
@@ -83,6 +95,20 @@ export function Testcases({ track, lesson, practice }: { track: string; lesson: 
     const cases = draft.cases.filter((c) => c.id !== current.id);
     update({ ...draft, cases, selected: cases[Math.max(0, index - 1)]!.id });
   };
+  const selected = validation.cases?.find((c) => c.id === current.id);
+  const inputVersion = JSON.stringify(selected ?? current);
+  const execute = async () => {
+    if (inFlight.current || !selected || !capability?.enabled) return;
+    inFlight.current = true;
+    setRunning(true);
+    setRunError(undefined);
+    try {
+      const code = await beforeRun();
+      const result = await api.runCase(track, lesson, { version: 1, cases: [selected] });
+      setRun({ result, code, input: inputVersion });
+    } catch (e) { setRunError((e as Error).message); }
+    finally { inFlight.current = false; setRunning(false); }
+  };
   return <>
     <div className="case-controls">
       <div role="tablist" aria-label="Test cases" className="case-tabs">
@@ -110,12 +136,25 @@ export function Testcases({ track, lesson, practice }: { track: string; lesson: 
       {current.expected !== undefined ? <label>Expected output <span className="muted small">{practice.output.type} (JSON)</span>
         <textarea rows={2} spellCheck={false} value={current.expected} aria-invalid={Boolean(errors.expected)} aria-describedby="case-expected-help" onChange={(e) => change({ expected: e.target.value })} />
         <span id="case-expected-help" className={errors.expected ? "error small" : "small muted"}>{errors.expected ?? `Schema: ${JSON.stringify(practice.output)}`}</span>
-      </label> : <p className="small muted">No expected output: future runs will show actual output without a pass/fail comparison.</p>}
+      </label> : <p className="small muted">No expected output: runs show actual output without a pass/fail comparison.</p>}
       <p className="small muted">{draft.cases.length}/{CASE_LIMIT} cases; {jsonBytes(current)}/65536 raw draft bytes (32 KiB parsed per case). Limits: 256 KiB total, 1000 items/array, 8192 bytes/string, safe numbers, 8 levels.</p>
       {validation.error && <p className="error small" role="alert">{validation.error}</p>}
       <p className="small" role="status">{status}. {!validation.cases && "Invalid inputs cannot run."}</p>
       {saveError && <div className="error small" role="alert">{saveError} <button type="button" onClick={() => update(draft)}>Retry saving cases</button></div>}
-      <p className="small muted">Practice execution is not available yet. Run checks uses the lesson’s original tests.</p>
+      <button type="button" disabled={running || !selected || !capability?.enabled} onClick={() => void execute()}>{running ? "Running selected case…" : "Run selected case"}</button>
+      {!capability?.enabled && <p className="small muted">{capability?.reason ?? "Checking practice runner…"}</p>}
+      <p className="small muted">Practice runs do not grade the lesson. Run checks uses the lesson’s original tests.</p>
+      {runError && <p className="error small" role="alert">{runError}</p>}
+      {run && <div aria-label="Practice result" role="region" aria-live="polite">
+        {(run.code !== codeVersion || run.input !== inputVersion) && <p className="notice small">This practice result is from before your latest code or case edits.</p>}
+        {run.result.results.map((r) => <div key={r.id}>
+          <p><strong>Practice: {r.status.replaceAll("_", " ")}</strong> <span className="small muted">{r.durationMs} ms</span></p>
+          {Object.hasOwn(r, "actual") && <><span className="small">Actual output</span><pre>{JSON.stringify(r.actual, null, 2)}</pre></>}
+          {r.stdout && <><span className="small">stdout</span><pre>{r.stdout}</pre></>}
+          {r.stderr && <><span className="small">stderr</span><pre>{r.stderr}</pre></>}
+          {r.outputTruncated && <p className="small muted">Output was truncated at the practice limit.</p>}
+        </div>)}
+      </div>}
     </div>
   </>;
 }

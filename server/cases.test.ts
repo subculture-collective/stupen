@@ -76,7 +76,7 @@ test("owned drafts round-trip independently of sample metadata, starter/tests, g
     const track = await createTrack("owner", { title: "Cases", subject: "Functions", runner: "typescript" });
     const meta: LessonMeta = { id: "01-cases", title: "Cases", objective: "Double", brief: "", hints: [], sources: [], files: [{ path: "solution.ts", role: "starter" }, { path: "solution.test.ts", role: "test" }], createdAt: "", status: "new", attempts: 3, failStreak: 2, verified: true, practice };
     const files = [{ path: "solution.ts", content: "STARTER" }, { path: "solution.test.ts", content: "CANONICAL" }];
-    for (const user of ["owner", "other"]) {
+    for (const user of ["owner", "other", "quota"]) {
       if (user === "other") {
         await writeJson(join(trackDir(user, track.id), "track.json"), track);
       }
@@ -109,9 +109,10 @@ test("HTTP case routes enforce sessions, ownership, app header, storage quota an
   config.dataDir = dir;
   const socket = join(dir, "server.sock");
   const db = database();
-  for (const id of ["owner", "other"]) db.prepare("INSERT INTO accounts (id, email, created_at) VALUES (?, ?, ?)").run(id, `${id}@example.test`, Date.now());
+  for (const id of ["owner", "other", "quota"]) db.prepare("INSERT INTO accounts (id, email, created_at) VALUES (?, ?, ?)").run(id, `${id}@example.test`, Date.now());
   const cookie = startSession("owner", "email", { headers: {}, socket: { remoteAddress: "127.0.0.1" } } as IncomingMessage).split(";")[0]!;
   const other = startSession("other", "email", { headers: {}, socket: { remoteAddress: "127.0.0.1" } } as IncomingMessage).split(";")[0]!;
+  const quota = startSession("quota", "email", { headers: {}, socket: { remoteAddress: "127.0.0.1" } } as IncomingMessage).split(";")[0]!;
   const child = spawn(process.execPath, ["server/index.ts"], { cwd: config.appDir, env: { PATH: join(dir, "no-binaries"), HOME: dir, AUTH_MODE: "accounts", STUDY_DATA_DIR: dir, STUDY_TOOLS_DIR: join(dir, "tools"), SOCKET: socket } });
   child.stderr.resume();
   const call = (path: string, method = "GET", data?: unknown, headers: Record<string, string> = { cookie }) => new Promise<{ status: number; data: any }>((resolve, reject) => {
@@ -134,6 +135,16 @@ test("HTTP case routes enforce sessions, ownership, app header, storage quota an
     const url = `/api/tracks/${track.id}/lessons/01-cases/cases`;
     assert.equal((await call(url, "GET", undefined, {})).status, 401);
     assert.equal((await call(url, "GET", undefined, { cookie: other })).status, 404);
+    const runUrl = url.replace(/cases$/, "run");
+    const run = { version: 1, cases: practice.cases };
+    assert.equal((await call(runUrl, "POST", run, {})).status, 401);
+    assert.equal((await call(runUrl, "POST", run, { cookie: other })).status, 404);
+    assert.equal((await call(runUrl, "POST", run, { cookie, "x-study-coach": "" })).status, 403);
+    assert.equal((await call(runUrl, "POST", { ...run, entry: "unsafe" })).status, 400);
+    assert.equal((await call(runUrl, "POST", { ...run, cases: [] })).status, 400);
+    assert.equal((await call(runUrl, "POST", { ...run, extra: "x".repeat(262_144) })).status, 413);
+    assert.equal((await call(runUrl)).data.enabled, false);
+    assert.equal((await call(runUrl, "POST", run)).status, 503, "missing sandbox never runs on the app host");
     const draft = initialCaseDrafts(practice);
     assert.deepEqual((await call(url)).data, draft);
     draft.selected = "sample-2";
@@ -142,11 +153,12 @@ test("HTTP case routes enforce sessions, ownership, app header, storage quota an
     assert.equal((await call(url, "PUT", draft, { cookie, "x-study-coach": "" })).status, 403);
     assert.equal((await call(url, "PUT", { ...draft, command: "unsafe" })).status, 400);
     assert.equal((await call(url, "PUT", { ...draft, extra: "x".repeat(262_144) })).status, 413);
-    await mkdir(userDir("other"), { recursive: true });
-    const quotaFile = join(userDir("other"), "quota-fixture");
+    await mkdir(userDir("quota"), { recursive: true });
+    const quotaFile = join(userDir("quota"), "quota-fixture");
     await writeFile(quotaFile, "");
     await truncate(quotaFile, STORAGE_LIMIT_BYTES + 1);
-    assert.equal((await call(url, "PUT", draft, { cookie: other })).status, 413, "case saves use the account storage quota");
+    assert.equal((await call(url, "PUT", draft, { cookie: quota })).status, 413, "case saves use the account storage quota");
+    assert.equal((await call(runUrl, "POST", run, { cookie: quota })).status, 413, "practice uses the account storage quota");
   } finally {
     child.kill("SIGTERM");
     await once(child, "exit");

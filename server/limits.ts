@@ -14,7 +14,7 @@ import { HttpError } from "./util.ts";
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const RULES: { method: string; pattern: RegExp; kind: string; max: number; windowMs: number }[] = [
-  { method: "POST", pattern: /^\/api\/tracks\/[^/]+\/lessons\/[^/]+\/check$/, kind: "checks", max: 150, windowMs: HOUR },
+  { method: "POST", pattern: /^\/api\/tracks\/[^/]+\/lessons\/[^/]+\/(?:check|run)$/, kind: "checks", max: 150, windowMs: HOUR },
   { method: "POST", pattern: /^\/api\/tracks\/[^/]+\/lessons\/[^/]+\/preview$/, kind: "previews", max: 60, windowMs: HOUR },
   { method: "POST", pattern: /^\/api\/tracks\/[^/]+\/jobs\//, kind: "generation jobs", max: 60, windowMs: DAY },
   { method: "POST", pattern: /^\/api\/tracks\/[^/]+\/materials$/, kind: "new materials", max: 60, windowMs: DAY },

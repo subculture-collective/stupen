@@ -81,6 +81,8 @@ import {
   writePlan,
 } from "./store.ts";
 import { HttpError } from "./util.ts";
+import { practiceAvailability, practiceLesson } from "./practice-service.ts";
+import { PRACTICE_REQUEST_BYTES } from "../shared/practiceRun.ts";
 import { DRAFT_BYTES } from "../shared/cases.ts";
 import { parsePracticeJson } from "../shared/practiceValues.ts";
 
@@ -427,6 +429,14 @@ const routes: Route[] = [
   { method: "GET", pattern: /^\/api\/jobs$/, handle: async (user, _m, _r, _s, url) => listJobs(user, url.searchParams.get("track") ?? undefined) },
   { method: "POST", pattern: /^\/api\/jobs\/(j[a-z0-9]+)\/cancel$/, handle: async (user, m) => (cancelJob(user, m[1]!), { ok: true }) },
   { method: "GET", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}$`), handle: (user, m) => lessonState(user, m[1]!, m[2]!) },
+  { method: "GET", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/run$`), handle: (user, m) => practiceAvailability(user, m[1]!, m[2]!) },
+  { method: "POST", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/run$`), handle: async (user, m, req, res) => {
+    const abort = new AbortController();
+    const close = () => { if (!res.writableEnded) abort.abort(); };
+    res.once("close", close);
+    try { return await practiceLesson(user, m[1]!, m[2]!, await body(req, PRACTICE_REQUEST_BYTES, (text) => parsePracticeJson(text, PRACTICE_REQUEST_BYTES)), abort.signal); }
+    finally { res.removeListener("close", close); }
+  } },
   { method: "GET", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/cases$`), handle: (user, m) => readCaseDrafts(user, m[1]!, m[2]!) },
   { method: "PUT", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/cases$`), handle: async (user, m, req) => (await writeCaseDrafts(user, m[1]!, m[2]!, await body(req, DRAFT_BYTES, (text) => parsePracticeJson(text, DRAFT_BYTES))), { ok: true }) },
   { method: "DELETE", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}$`), handle: async (user, m) => (await deleteLesson(user, m[1]!, m[2]!), { ok: true }) },

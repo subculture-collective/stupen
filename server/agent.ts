@@ -14,6 +14,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage } from "node:http";
 import { dirname, join, normalize } from "node:path";
 
+import { runPractice } from "./practice-adapter.ts";
+import { parsePracticeJson } from "../shared/practiceValues.ts";
+import { practiceCapability } from "./sandbox.ts";
 import { config } from "./config.ts";
 import { containerChecks, containerPreview, dockerAvailable, ensureInfra, renderPage } from "./containers.ts";
 import type { Environment } from "./environments.ts";
@@ -39,7 +42,8 @@ async function readBody(req: IncomingMessage): Promise<any> {
     if (size > 60_000_000) throw Object.assign(new Error("request too large"), { status: 413 });
     chunks.push(c as Buffer);
   }
-  return JSON.parse(Buffer.concat(chunks).toString() || "{}");
+  try { return parsePracticeJson(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)) || "{}", 60_000_000); }
+  catch { throw Object.assign(new Error("invalid JSON"), { status: 400 }); }
 }
 
 /** Write the posted files into a fresh folder, refusing paths that leave it. */
@@ -61,10 +65,12 @@ const cacheDir = (key: unknown) => {
   return join(config.dataDir, "cache", key);
 };
 
-async function handle(op: string, i: any): Promise<unknown> {
+async function handle(op: string, i: any, signal: AbortSignal): Promise<unknown> {
   switch (op) {
     case "status":
-      return { sandbox: await sandboxStatus(), runners: await runnerAvailability(), docker: await dockerAvailable() };
+      return { sandbox: await sandboxStatus(), runners: await runnerAvailability(), docker: await dockerAvailable(), practice: await practiceCapability() };
+    case "practice":
+      return runPractice(i, signal);
     case "quick": {
       const dir = await unpack(i.files);
       try {
@@ -109,11 +115,13 @@ createServer(async (req, res) => {
     res.writeHead(status, { "content-type": "application/json" });
     res.end(JSON.stringify(body));
   };
+  const abort = new AbortController();
+  res.once("close", () => { if (!res.writableEnded) abort.abort(); });
   try {
     if (!authorized(req)) return send(401, { error: "unauthorized" });
     const m = /^\/v1\/([a-z]+)$/.exec(req.url ?? "");
     if (req.method !== "POST" || !m) return send(404, { error: "not found" });
-    send(200, await handle(m[1]!, await readBody(req)));
+    send(200, await handle(m[1]!, await readBody(req), abort.signal));
   } catch (e) {
     const err = e as Error & { status?: number };
     if (!err.status) console.error(err);
