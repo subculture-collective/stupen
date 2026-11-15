@@ -6,6 +6,7 @@ import { Coach, fireTrigger, type PromptVars } from "./Coach.tsx";
 import { type Caret, Editor, fileLanguage } from "./Editor.tsx";
 import { summarize } from "./checks.ts";
 import { PracticeResults, type PracticeOutcome } from "./PracticeResults.tsx";
+import { Submissions } from "./Submissions.tsx";
 import { Testcases, type CaseControls, type TestcasesHandle } from "./Testcases.tsx";
 import { Md } from "./Md.tsx";
 import { ConfirmButton, LockIcon, RUN_KEY, PRACTICE_KEY, StatusIcon, tabKeys, useMedia } from "./ui.tsx";
@@ -370,7 +371,7 @@ const Workbench = forwardRef<
   const saves = useRef(new Map<string, Promise<void>>());
   const [error, setError] = useState<string>();
   const [hints, setHints] = useState(0);
-  const [readingTab, setReadingTab] = useState<"description" | "hints" | "solution">("description");
+  const [readingTab, setReadingTab] = useState<"description" | "hints" | "solution" | "submissions">("description");
   const [revealing, setRevealing] = useState(false);
   const [solution, setSolution] = useState<{ path: string; content: string }[]>();
   const [outputOpen, setOutputOpen] = useState(Boolean(meta.practice || (meta.lastChecks && !meta.lastChecks.passed)));
@@ -668,7 +669,7 @@ const Workbench = forwardRef<
 
           <div className="pane-controls"><span className="small muted">Reading</span><button type="button" className="small-button" aria-label={props.layout === "reading" ? "Restore split layout" : "Maximize reading pane"} onClick={() => props.changeLayout(props.layout === "reading" ? "split" : "reading")}>{props.layout === "reading" ? "Restore" : "Maximize"}</button></div>
           <div className="reference-tabs" role="tablist" aria-label="Lesson reference">
-            {(["description", "hints", "solution"] as const).map((id) => <button key={id} id={`reading-${id}-tab`} type="button" role="tab" tabIndex={readingTab === id ? 0 : -1} aria-selected={readingTab === id} aria-controls={`reading-${id}`} onClick={() => setReadingTab(id)} onKeyDown={(e) => tabKeys(e, ["description", "hints", "solution"], readingTab, setReadingTab)}>{id === "description" ? "Description" : id === "hints" ? "Hints" : "Reference solution"}</button>)}
+            {(["description", "hints", "solution", "submissions"] as const).map((id) => <button key={id} id={`reading-${id}-tab`} type="button" role="tab" tabIndex={readingTab === id ? 0 : -1} aria-selected={readingTab === id} aria-controls={`reading-${id}`} onClick={() => setReadingTab(id)} onKeyDown={(e) => tabKeys(e, ["description", "hints", "solution", "submissions"], readingTab, setReadingTab)}>{id === "description" ? "Description" : id === "hints" ? "Hints" : id === "solution" ? "Reference solution" : "Submissions"}</button>)}
           </div>
           <div id="reading-description" role="tabpanel" tabIndex={0} aria-labelledby="reading-description-tab" className="brief" hidden={readingTab !== "description"}>
             <Md className="md">{meta.brief}</Md>
@@ -732,6 +733,9 @@ const Workbench = forwardRef<
               >{revealing ? "Loading solution…" : meta.revealedAt ? "Load revealed solution" : "Reveal reference solution"}</ConfirmButton>
             </>}
             {solution?.map((f) => <div key={f.path}><p className="small muted">{f.path}</p><pre className="code-block">{f.content}</pre></div>)}
+          </div>
+          <div id="reading-submissions" role="tabpanel" tabIndex={0} aria-labelledby="reading-submissions-tab" className="brief" hidden={readingTab !== "submissions"}>
+            {readingTab === "submissions" && <Submissions track={track} lesson={meta.id} attempts={meta.attempts} latest={meta.lastChecks} graded={props.graded} />}
           </div>
         </section>
         {!props.narrow && props.layout === "split" && <ResizeHandle label="Resize description panel" value={descriptionWidth} min={220} max={640} onChange={setDescriptionWidth} />}

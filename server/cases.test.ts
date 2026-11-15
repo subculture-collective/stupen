@@ -1,18 +1,19 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { gunzipSync } from "node:zlib";
 import { initialCaseDrafts, parseCaseDrafts, validateCaseDrafts } from "../shared/cases.ts";
 import type { Practice } from "../shared/practice.ts";
 import { startSession } from "./auth.ts";
 import { config } from "./config.ts";
 import { database, useMemoryDatabase } from "./db.ts";
-import { createTrack, getLesson, lessonDir, readCaseDrafts, trackDir, userDir, writeCaseDrafts, writeLesson, type LessonMeta } from "./store.ts";
+import { createTrack, getLesson, lessonDir, readCaseDrafts, recordSubmission, trackDir, userDir, writeCaseDrafts, writeLesson, type LessonMeta } from "./store.ts";
 import { writeJson } from "./util.ts";
 import { STORAGE_LIMIT_BYTES } from "./limits.ts";
 
@@ -113,13 +114,15 @@ test("HTTP case routes enforce sessions, ownership, app header, storage quota an
   const cookie = startSession("owner", "email", { headers: {}, socket: { remoteAddress: "127.0.0.1" } } as IncomingMessage).split(";")[0]!;
   const other = startSession("other", "email", { headers: {}, socket: { remoteAddress: "127.0.0.1" } } as IncomingMessage).split(";")[0]!;
   const quota = startSession("quota", "email", { headers: {}, socket: { remoteAddress: "127.0.0.1" } } as IncomingMessage).split(";")[0]!;
+  await mkdir(join(dir, "no-binaries"));
+  for (const bin of ["tar", "gzip"]) await symlink(`/usr/bin/${bin}`, join(dir, "no-binaries", bin));
   const child = spawn(process.execPath, ["server/index.ts"], { cwd: config.appDir, env: { PATH: join(dir, "no-binaries"), HOME: dir, AUTH_MODE: "accounts", STUDY_DATA_DIR: dir, STUDY_TOOLS_DIR: join(dir, "tools"), SOCKET: socket } });
   child.stderr.resume();
   const call = (path: string, method = "GET", data?: unknown, headers: Record<string, string> = { cookie }) => new Promise<{ status: number; data: any }>((resolve, reject) => {
-    const req = request({ socketPath: socket, path, method, headers: { host: "localhost", "x-study-coach": "1", "content-type": "application/json", ...headers } }, (res) => {
+    const req = request({ socketPath: socket, path, method, headers: { host: "localhost", "x-study-coach": "1", "content-type": "application/json", ...(data === undefined ? {} : { "content-length": String(Buffer.byteLength(JSON.stringify(data))) }), ...headers } }, (res) => {
       let text = "";
       res.on("data", (chunk) => { text += chunk; });
-      res.on("end", () => resolve({ status: res.statusCode!, data: JSON.parse(text) }));
+      res.on("end", () => { try { resolve({ status: res.statusCode!, data: JSON.parse(text) }); } catch { reject(new Error(`Non-JSON response for ${path}: ${res.statusCode} (${text.length} bytes)`)); } });
     });
     req.on("error", reject);
     req.end(data === undefined ? undefined : JSON.stringify(data));
@@ -133,6 +136,25 @@ test("HTTP case routes enforce sessions, ownership, app header, storage quota an
     const track = await createTrack("owner", { title: "API cases", subject: "Functions", runner: "typescript" });
     await writeLesson("owner", track.id, { id: "01-cases", title: "Cases", objective: "", brief: "", hints: [], sources: [], files: [{ path: "solution.ts", role: "starter" }], createdAt: "", status: "new", attempts: 0, verified: true, practice }, [], []);
     const url = `/api/tracks/${track.id}/lessons/01-cases/cases`;
+    const historyUrl = url.replace(/cases$/, "submissions");
+    assert.equal((await call(historyUrl, "GET", undefined, {})).status, 401);
+    assert.equal((await call(historyUrl, "GET", undefined, { cookie: other })).status, 404);
+    assert.deepEqual((await call(historyUrl)).data, []);
+    await recordSubmission("owner", track.id, "01-cases", { at: "2026-11-15T22:00:00.000Z", passed: true, sandboxed: true, results: [] });
+    assert.equal((await call(historyUrl)).data.length, 1);
+    const archive = await new Promise<Buffer>((resolve, reject) => {
+      const req = request({ socketPath: socket, path: "/api/account/export", headers: { host: "localhost", cookie } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve(Buffer.concat(chunks)));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    assert.match(gunzipSync(archive).toString(), /"submissions"/);
+
+    assert.equal((await call(historyUrl, "GET", undefined, { cookie: other })).status, 404);
+
     assert.equal((await call(url, "GET", undefined, {})).status, 401);
     assert.equal((await call(url, "GET", undefined, { cookie: other })).status, 404);
     const runUrl = url.replace(/cases$/, "run");
@@ -159,9 +181,15 @@ test("HTTP case routes enforce sessions, ownership, app header, storage quota an
     await truncate(quotaFile, STORAGE_LIMIT_BYTES + 1);
     assert.equal((await call(url, "PUT", draft, { cookie: quota })).status, 413, "case saves use the account storage quota");
     assert.equal((await call(runUrl, "POST", run, { cookie: quota })).status, 413, "practice uses the account storage quota");
+    assert.equal((await call("/api/account", "DELETE", { confirm: "owner@example.test" })).status, 200);
+    await assert.rejects(readFile(join(lessonDir("owner", track.id, "01-cases"), ".meta/lesson.json")), { code: "ENOENT" });
+    assert.equal((await call(historyUrl)).status, 401);
+
   } finally {
-    child.kill("SIGTERM");
-    await once(child, "exit");
+    if (child.exitCode === null) {
+      child.kill("SIGTERM");
+      await once(child, "exit");
+    }
     db.close();
     useMemoryDatabase();
     config.dataDir = prior;

@@ -65,11 +65,13 @@ import {
   listMaterials,
   listTracks,
   readCaseDrafts,
+  readSubmissions,
+  recordSubmission,
   readLessonFile,
   readPlan,
   readReference,
   restorePlan,
-  saveLessonMeta,
+  updateLessonMeta,
   starterContent,
   updateMaterial,
   updateTrack,
@@ -165,7 +167,15 @@ async function lessonState(user: string, track: string, lesson: string) {
   return { meta, files, help: help[lesson] ?? null };
 }
 
+const submitting = new Set<string>();
 async function checkLesson(user: string, trackId: string, lesson: string) {
+  if (submitting.has(user)) throw new HttpError(429, "A submission is already in progress for your account.");
+  submitting.add(user);
+  try { return await submitLesson(user, trackId, lesson); }
+  finally { submitting.delete(user); }
+}
+
+async function submitLesson(user: string, trackId: string, lesson: string) {
   const track = await getTrack(user, trackId);
   const r = runner(track.runner);
   const files = await lessonFiles(user, trackId, lesson);
@@ -182,16 +192,8 @@ async function checkLesson(user: string, trackId: string, lesson: string) {
     checks = await exec.quickChecks(lessonDir(user, trackId, lesson), r.id, track.customCommand);
   }
   const meta = await getLesson(user, trackId, lesson);
-  const failStreak = checks.passed ? 0 : (meta.failStreak ?? 0) + 1;
-  const next = {
-    ...meta,
-    attempts: meta.attempts + 1,
-    lastChecks: checks,
-    failStreak,
-    status: checks.passed ? ("passed" as const) : meta.status === "passed" ? ("passed" as const) : ("started" as const),
-    ...(checks.passed && !meta.passedAt ? { passedAt: checks.at } : {}),
-  };
-  await saveLessonMeta(user, trackId, next);
+  const next = await recordSubmission(user, trackId, lesson, checks);
+  forgetStorage(user);
   return { checks, meta: next, firstPass: checks.passed && !meta.passedAt };
 }
 
@@ -276,15 +278,14 @@ async function chat(user: string, req: IncomingMessage, res: ServerResponse) {
 
   let passed = false;
   if (grading && meta && parser.verdict && !error) {
-    const fresh = await getLesson(user, track.id, meta.id);
     passed = parser.verdict === "pass";
-    await saveLessonMeta(user, track.id, {
+    await updateLessonMeta(user, track.id, meta.id, (fresh) => ({
       ...fresh,
       attempts: fresh.attempts + 1,
       failStreak: passed ? 0 : (fresh.failStreak ?? 0) + 1,
       status: passed || fresh.status === "passed" ? "passed" : "started",
       ...(passed && !fresh.passedAt ? { passedAt: new Date().toISOString() } : {}),
-    });
+    }));
   }
   await appendLog(user, {
     at: new Date().toISOString(),
@@ -437,6 +438,7 @@ const routes: Route[] = [
     try { return await practiceLesson(user, m[1]!, m[2]!, await body(req, PRACTICE_REQUEST_BYTES, (text) => parsePracticeJson(text, PRACTICE_REQUEST_BYTES)), abort.signal); }
     finally { res.removeListener("close", close); }
   } },
+  { method: "GET", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/submissions$`), handle: (user, m) => readSubmissions(user, m[1]!, m[2]!) },
   { method: "GET", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/cases$`), handle: (user, m) => readCaseDrafts(user, m[1]!, m[2]!) },
   { method: "PUT", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/cases$`), handle: async (user, m, req) => (await writeCaseDrafts(user, m[1]!, m[2]!, await body(req, DRAFT_BYTES, (text) => parsePracticeJson(text, DRAFT_BYTES))), { ok: true }) },
   { method: "DELETE", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}$`), handle: async (user, m) => (await deleteLesson(user, m[1]!, m[2]!), { ok: true }) },
@@ -491,7 +493,7 @@ const routes: Route[] = [
     handle: async (user, m) => {
       const meta = await getLesson(user, m[1]!, m[2]!);
       const revealedAt = meta.revealedAt ?? new Date().toISOString();
-      if (!meta.revealedAt) await saveLessonMeta(user, m[1]!, { ...meta, revealedAt });
+      if (!meta.revealedAt) await updateLessonMeta(user, m[1]!, meta.id, (fresh) => ({ ...fresh, revealedAt: fresh.revealedAt ?? revealedAt }));
       return { files: await readReference(user, m[1]!, m[2]!), revealedAt };
     },
   },

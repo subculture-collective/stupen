@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
+import { SUBMISSION_LIMIT, SUBMISSION_DETAIL_CHARS, type Submission } from "../shared/submissions.ts";
 import type { Practice } from "../shared/practice.ts";
 import { initialCaseDrafts, sampleDraft, validateCaseDrafts, type CaseDrafts } from "../shared/cases.ts";
 import { publishedPractice } from "./practice.ts";
@@ -250,14 +251,83 @@ export async function getLesson(user: string, track: string, lesson: string): Pr
   return publicPractice(m, (await getTrack(user, track)).runner);
 }
 
-function publicPractice(meta: LessonMeta, runtime: string): LessonMeta {
-  const { practice: raw, ...rest } = meta;
+type StoredLesson = LessonMeta & { submissions?: Submission[] };
+
+function publicPractice(meta: StoredLesson, runtime: string): LessonMeta {
+  const { practice: raw, submissions: _history, ...rest } = meta;
   const practice = publishedPractice(raw, runtime, meta.files, meta.verified);
   return practice ? { ...rest, practice } : rest;
 }
 
+// Serialize metadata writers so reveal/autosave cannot overwrite a new history entry.
+const lessonWrites = new Map<string, Promise<unknown>>();
+async function lessonWrite<T>(path: string, write: () => Promise<T>): Promise<T> {
+  const prior = lessonWrites.get(path) ?? Promise.resolve();
+  const next = prior.catch(() => {}).then(write);
+  lessonWrites.set(path, next);
+  try { return await next; }
+  finally { if (lessonWrites.get(path) === next) lessonWrites.delete(path); }
+}
+
 export async function saveLessonMeta(user: string, track: string, meta: LessonMeta) {
-  await writeJson(metaPath(user, track, meta.id), meta);
+  const path = metaPath(user, track, meta.id);
+  await lessonWrite(path, async () => {
+    const stored = await readJson<StoredLesson | undefined>(path, undefined);
+    await writeJson(path, { ...meta, ...(stored?.submissions ? { submissions: stored.submissions } : {}) });
+  });
+}
+
+/** Apply a metadata change to the latest state under the same lock as Submit. */
+export function updateLessonMeta(user: string, track: string, lesson: string, update: (meta: LessonMeta) => LessonMeta): Promise<void> {
+  const path = metaPath(user, track, lesson);
+  return lessonWrite(path, async () => {
+    const meta = await getLesson(user, track, lesson);
+    const stored = await readJson<StoredLesson>(path, meta);
+    await writeJson(path, { ...update(meta), ...(stored.submissions ? { submissions: stored.submissions } : {}) });
+  });
+}
+
+/** Progress and history share one atomic write: neither can succeed alone. */
+export function recordSubmission(user: string, track: string, lesson: string, checks: Checks): Promise<LessonMeta> {
+  return lessonWrite(metaPath(user, track, lesson), () => storeSubmission(user, track, lesson, checks));
+}
+
+async function storeSubmission(user: string, track: string, lesson: string, checks: Checks): Promise<LessonMeta> {
+  const meta = await getLesson(user, track, lesson);
+  const path = metaPath(user, track, lesson);
+  const stored = await readJson<StoredLesson>(path, meta);
+  let remaining = SUBMISSION_DETAIL_CHARS;
+  let detailsTruncated = checks.results.length > 20;
+  const clip = (text: string, max: number) => {
+    const bounded = text.slice(0, Math.min(remaining, max));
+    remaining -= bounded.length;
+    if (bounded.length < text.length) detailsTruncated = true;
+    return bounded;
+  };
+  const results = checks.results.slice(0, 20).map((r) => ({ ...r, command: clip(r.command, 512), output: clip(r.output, SUBMISSION_DETAIL_CHARS) }));
+  const submission: Submission = {
+    id: newId("s"), at: checks.at, passed: checks.passed,
+    durationMs: checks.results.reduce((sum, r) => sum + r.durationMs, 0),
+    checks: { ...checks, results }, detailsTruncated,
+  };
+  const next: LessonMeta = {
+    ...meta, attempts: meta.attempts + 1, lastChecks: checks,
+    failStreak: checks.passed ? 0 : (meta.failStreak ?? 0) + 1,
+    status: checks.passed || meta.status === "passed" ? "passed" : "started",
+    ...(checks.passed && !meta.passedAt ? { passedAt: checks.at } : {}),
+  };
+  try {
+    await writeJson(path, { ...next, submissions: [submission, ...(stored.submissions ?? [])].slice(0, SUBMISSION_LIMIT) });
+  } catch {
+    throw new HttpError(500, "Checks completed, but the submission and progress could not be saved. Retry Submit after storage is available.");
+  }
+  return next;
+}
+
+export async function readSubmissions(user: string, track: string, lesson: string): Promise<Submission[]> {
+  await getLesson(user, track, lesson);
+  const stored = await readJson<StoredLesson>(metaPath(user, track, lesson), {} as StoredLesson);
+  return stored.submissions ?? [];
 }
 
 async function casePractice(user: string, track: string, lesson: string) {
@@ -355,8 +425,7 @@ export async function writeLessonFile(user: string, track: string, lesson: strin
   if (!entry?.editable) throw new HttpError(403, "only your own solution files can be edited");
   if (Buffer.byteLength(content) > MAX_FILE) throw new HttpError(413, "file too large");
   await writeAtomic(inside(lessonDir(user, track, lesson), rel), content);
-  const meta = await getLesson(user, track, lesson);
-  if (meta.status === "new") await saveLessonMeta(user, track, { ...meta, status: "started" });
+  await updateLessonMeta(user, track, lesson, (meta) => meta.status === "new" ? { ...meta, status: "started" } : meta);
 }
 
 export async function readReference(user: string, track: string, lesson: string): Promise<{ path: string; content: string }[]> {
