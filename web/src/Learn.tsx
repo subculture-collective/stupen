@@ -5,6 +5,7 @@ import { go, href } from "./App.tsx";
 import { Coach, fireTrigger, type PromptVars } from "./Coach.tsx";
 import { type Caret, Editor, fileLanguage } from "./Editor.tsx";
 import { summarize } from "./checks.ts";
+import { PracticeResults, type PracticeOutcome } from "./PracticeResults.tsx";
 import { Testcases, type CaseControls, type TestcasesHandle } from "./Testcases.tsx";
 import { Md } from "./Md.tsx";
 import { ConfirmButton, LockIcon, RUN_KEY, PRACTICE_KEY, StatusIcon, tabKeys, useMedia } from "./ui.tsx";
@@ -360,7 +361,9 @@ const Workbench = forwardRef<
   const [checks, setChecks] = useState<Checks | undefined>(meta.lastChecks);
   const [running, setRunning] = useState(false);
   const [practiceBusy, setPracticeBusy] = useState(false);
-  const [practiceState, setPracticeState] = useState<CaseControls>({ enabled: false, reason: "Loading practice inputs…" });
+  const [practiceState, setPracticeState] = useState<CaseControls>({ enabled: false, reason: "Loading practice inputs…", inputVersion: "" });
+  const [practiceOutcome, setPracticeOutcome] = useState<PracticeOutcome>();
+  const [practiceError, setPracticeError] = useState<string>();
   const casesRef = useRef<TestcasesHandle>(null);
   const execution = useRef<"practice" | "submit" | undefined>(undefined);
   const [caret, setCaret] = useState<Caret>();
@@ -371,7 +374,7 @@ const Workbench = forwardRef<
   const [revealing, setRevealing] = useState(false);
   const [solution, setSolution] = useState<{ path: string; content: string }[]>();
   const [outputOpen, setOutputOpen] = useState(Boolean(meta.practice || (meta.lastChecks && !meta.lastChecks.passed)));
-  const [resultTab, setResultTab] = useState<"cases" | "problems" | "output">(meta.practice ? "cases" : "problems");
+  const [resultTab, setResultTab] = useState<"cases" | "result" | "problems" | "output">(meta.practice ? "cases" : "problems");
   const [resultHeight, setResultHeight] = usePanelSize("study-coach:results-height", 260, 90, 500);
   const [gotoLine, setGotoLine] = useState<{ line: number; column: number; at: number }>();
   const [checksStale, setChecksStale] = useState(false);
@@ -636,11 +639,11 @@ const Workbench = forwardRef<
           Delete
         </ConfirmButton>
       </div>
-      {!props.graded && <p id="practice-availability" className="small muted" role="status">{practiceState.reason || "Run tries the selected case without grading. Submit judges the original lesson checks."}</p>}
+      {!props.graded && <p id="practice-availability" className="small muted" role="status">{practiceState.reason || "Run tries all sample and custom cases without grading. Submit judges the original lesson checks."}</p>}
       {!props.graded && !props.runnerOk && <p className="small muted" role="status">Submit unavailable: {props.runnerDetail ?? "the runner is unavailable."}</p>}
-      {error && (
+      {(error || practiceError) && (
         <p className="error small" role="alert">
-          {error}
+          {error || `Practice: ${practiceError}`}
         </p>
       )}
       {!props.runnerOk && !props.graded && <p className="notice small">Checks can't run on this server: {props.runnerDetail}.</p>}
@@ -741,7 +744,7 @@ const Workbench = forwardRef<
             {current && !current.editable && <span className="pill">Read-only</span>}
             <details className="keyboard-help">
               <summary>Keyboard help</summary>
-              <p id="editor-help">Ctrl/Cmd+S saves the active file. Ctrl/Cmd+Enter {props.graded ? "submits for coach grading" : "submits canonical checks"}. Ctrl/Cmd+Shift+Enter runs the selected practice case when available. Ctrl+Space opens completion; Enter accepts. Ctrl/Cmd+D selects the next matching word; Alt-drag selects a rectangle. Tab indents and Shift+Tab unindents. Press Escape, then Tab to leave the editor. Ctrl+M (Option+Shift+M on macOS) toggles Tab focus mode. Hover over a symbol for documentation.</p>
+              <p id="editor-help">Ctrl/Cmd+S saves the active file. Ctrl/Cmd+Enter {props.graded ? "submits for coach grading" : "submits canonical checks"}. Ctrl/Cmd+Shift+Enter runs all practice cases when available. Ctrl+Space opens completion; Enter accepts. Ctrl/Cmd+D selects the next matching word; Alt-drag selects a rectangle. Tab indents and Shift+Tab unindents. Press Escape, then Tab to leave the editor. Ctrl+M (Option+Shift+M on macOS) toggles Tab focus mode. Hover over a symbol for documentation.</p>
             </details>
           </div>
           <div className="tabs" role="tablist" aria-label="Lesson" hidden={props.layout === "results"}>
@@ -827,6 +830,7 @@ const Workbench = forwardRef<
           {saveError && <p className="error small" role="alert" hidden={props.layout === "results"}>{contents[saveError.path]?.saveError} — Ctrl/Cmd+S retries the active file; Run and Submit save all files first.</p>}
           <div className="results-toolbar" role="tablist" aria-label="Results" hidden={props.layout === "code"}>
             <button type="button" role="tab" aria-selected={resultTab === "cases" && (outputOpen || props.layout === "results")} aria-controls="lesson-cases" onClick={() => { setResultTab("cases"); if (props.layout !== "results") setOutputOpen(true); }}>Testcases</button>
+            <button type="button" role="tab" aria-selected={resultTab === "result" && (outputOpen || props.layout === "results")} aria-controls="lesson-practice-result" onClick={() => { setResultTab("result"); if (props.layout !== "results") setOutputOpen(true); }}>Test Result</button>
             <button type="button" role="tab" aria-selected={resultTab === "problems" && (outputOpen || props.layout === "results")} aria-controls="lesson-problems" onClick={() => { setResultTab("problems"); if (props.layout !== "results") setOutputOpen(true); }}>Problems ({problems.length})</button>
             <button type="button" role="tab" aria-selected={resultTab === "output" && (outputOpen || props.layout === "results")} aria-controls="lesson-output" onClick={() => { setResultTab("output"); if (props.layout !== "results") setOutputOpen(true); }}>Check output</button>
             <span className="spacer" />
@@ -836,11 +840,14 @@ const Workbench = forwardRef<
           <section className={`results-panel ${props.layout === "results" ? "maximized" : ""}`} hidden={props.layout === "code" || (!outputOpen && props.layout !== "results")} style={props.layout === "results" ? undefined : { height: resultHeight }} aria-label="Results panel">
             {props.layout !== "results" && outputOpen && <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />}
             <div id="lesson-cases" role="tabpanel" aria-label="Testcases" className="testcases" hidden={resultTab !== "cases"}>
-              <Testcases ref={casesRef} onState={setPracticeState} reportError={setError} acquire={() => { if (execution.current) return false; execution.current = "practice"; setPracticeBusy(true); setOutputOpen(true); setResultTab("cases"); props.showCode(); if (props.layout === "code" || props.layout === "reading") props.changeLayout("split"); return true; }} release={() => { execution.current = undefined; setPracticeBusy(false); }} track={track} lesson={meta.id} practice={meta.practice} codeVersion={JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contents[f.path]?.content])])} beforeRun={async () => {
+              <Testcases ref={casesRef} onState={setPracticeState} reportError={setPracticeError} onResult={setPracticeOutcome} acquire={() => { if (execution.current) return false; execution.current = "practice"; setError(undefined); setPracticeBusy(true); setOutputOpen(true); setResultTab("result"); props.showCode(); if (props.layout === "code" || props.layout === "reading") props.changeLayout("split"); return true; }} release={() => { execution.current = undefined; setPracticeBusy(false); }} track={track} lesson={meta.id} practice={meta.practice} beforeRun={async () => {
                 await saveAll();
                 if (allFiles.some((f) => f.editable && (!contentsRef.current[f.path] || contentsRef.current[f.path]!.content !== contentsRef.current[f.path]!.saved))) throw new Error("Code changed while saving. Run the case again to use your latest edits.");
                 return JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contentsRef.current[f.path]?.content])]);
               }} />
+            </div>
+            <div id="lesson-practice-result" role="tabpanel" aria-label="Test Result" className="testcases" hidden={resultTab !== "result"}>
+              <PracticeResults outcome={practiceOutcome} busy={practiceBusy} error={practiceError} reason={practiceState.reason} codeVersion={JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contents[f.path]?.content])])} inputVersion={practiceState.inputVersion} files={sourceFiles} onProblem={jumpToProblem} />
             </div>
             <div id="lesson-problems" role="tabpanel" aria-label="Problems" className="problems" hidden={resultTab !== "problems"}>
               {assistanceError && <p className="notice small" role="status">{assistanceError}</p>}

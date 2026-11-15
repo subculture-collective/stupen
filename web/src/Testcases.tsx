@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { CASE_LIMIT, jsonBytes, parseCaseDrafts, sampleDraft, validateCaseDrafts, type CaseDraft, type CaseDrafts } from "../../shared/cases.ts";
-import type { PracticeRun } from "../../shared/practiceRun.ts";
+import type { PracticeOutcome } from "./PracticeResults.tsx";
 import type { Practice } from "../../shared/practice.ts";
 import { api } from "./api.ts";
 import { tabKeys } from "./ui.tsx";
@@ -9,13 +9,10 @@ import { tabKeys } from "./ui.tsx";
 // Only promises live here; learner drafts are not cached across accounts.
 const pendingSaves = new Map<string, Promise<void>>();
 
-export type CaseControls = { enabled: boolean; reason: string };
+export type CaseControls = { enabled: boolean; reason: string; inputVersion: string };
 export type TestcasesHandle = { run: () => void };
-export const Testcases = forwardRef<TestcasesHandle, { track: string; lesson: string; practice: Practice | undefined; codeVersion: string; beforeRun: () => Promise<string>; acquire: () => boolean; release: () => void; onState: (state: CaseControls) => void; reportError: (message: string | undefined) => void }>(function Testcases({ track, lesson, practice, codeVersion, beforeRun, acquire, release, onState, reportError }, ref) {
+export const Testcases = forwardRef<TestcasesHandle, { track: string; lesson: string; practice: Practice | undefined; beforeRun: () => Promise<string>; acquire: () => boolean; release: () => void; onState: (state: CaseControls) => void; reportError: (message: string | undefined) => void; onResult: (outcome: PracticeOutcome) => void }>(function Testcases({ track, lesson, practice, beforeRun, acquire, release, onState, reportError, onResult }, ref) {
   const [capability, setCapability] = useState<{ enabled: boolean; reason: string }>();
-  const [run, setRun] = useState<{ result: PracticeRun; code: string; input: string }>();
-  const [runError, setRunError] = useState<string>();
-  const [running, setRunning] = useState(false);
   const inFlight = useRef(false);
   useEffect(() => {
     if (!practice) return;
@@ -37,7 +34,7 @@ export const Testcases = forwardRef<TestcasesHandle, { track: string; lesson: st
   useEffect(() => {
     const valid = draft && practice && parseCaseDrafts(draft, practice).cases;
     const reason = !practice ? "Run needs compatible generated case metadata. Submit still uses the original checks." : !draft ? "Loading practice inputs…" : !valid ? "Fix invalid case inputs before Run. Submit still uses the original checks." : !capability?.enabled ? capability?.reason ?? "Checking practice runner…" : "";
-    onState({ enabled: Boolean(valid && capability?.enabled), reason });
+    onState({ enabled: Boolean(valid && capability?.enabled), reason, inputVersion: JSON.stringify(valid || draft?.cases || []) });
   }, [draft, practice, capability, onState]);
   const metadata = JSON.stringify(practice);
   const saveKey = `${track}/${lesson}`;
@@ -106,19 +103,17 @@ export const Testcases = forwardRef<TestcasesHandle, { track: string; lesson: st
     update({ ...draft, cases, selected: cases[Math.max(0, index - 1)]!.id });
   };
   const selected = validation.cases?.find((c) => c.id === current.id);
-  const inputVersion = JSON.stringify(selected ?? current);
+  const inputVersion = JSON.stringify(validation.cases ?? draft.cases);
   const execute = async () => {
     if (inFlight.current || !selected || !capability?.enabled || !acquire()) return;
     inFlight.current = true;
-    setRunning(true);
-    setRunError(undefined);
     reportError(undefined);
     try {
       const code = await beforeRun();
-      const result = await api.runCase(track, lesson, { version: 1, cases: [selected] });
-      setRun({ result, code, input: inputVersion });
-    } catch (e) { const message = (e as Error).message; setRunError(message); reportError(message); }
-    finally { inFlight.current = false; setRunning(false); release(); }
+      const result = await api.runCase(track, lesson, { version: 1, cases: validation.cases! });
+      onResult({ result, code, input: inputVersion, cases: validation.cases!, selected: current.id });
+    } catch (e) { const message = (e as Error).message; reportError(message); }
+    finally { inFlight.current = false; release(); }
   };
   executeRef.current = () => { void execute(); };
   return <>
@@ -153,20 +148,9 @@ export const Testcases = forwardRef<TestcasesHandle, { track: string; lesson: st
       {validation.error && <p className="error small" role="alert">{validation.error}</p>}
       <p className="small" role="status">{status}. {!validation.cases && "Invalid inputs cannot run."}</p>
       {saveError && <div className="error small" role="alert">{saveError} <button type="button" onClick={() => update(draft)}>Retry saving cases</button></div>}
-      {running && <p role="status">Running selected case…</p>}
       {!capability?.enabled && <p className="small muted">{capability?.reason ?? "Checking practice runner…"}</p>}
       <p className="small muted">Practice runs do not grade the lesson. Submit uses the lesson’s original tests.</p>
-      {runError && <p className="error small" role="alert">{runError}</p>}
-      {run && <div aria-label="Practice result" role="region" aria-live="polite">
-        {(run.code !== codeVersion || run.input !== inputVersion) && <p className="notice small">This practice result is from before your latest code or case edits.</p>}
-        {run.result.results.map((r) => <div key={r.id}>
-          <p><strong>Practice: {r.status.replaceAll("_", " ")}</strong> <span className="small muted">{r.durationMs} ms</span></p>
-          {Object.hasOwn(r, "actual") && <><span className="small">Actual output</span><pre>{JSON.stringify(r.actual, null, 2)}</pre></>}
-          {r.stdout && <><span className="small">stdout</span><pre>{r.stdout}</pre></>}
-          {r.stderr && <><span className="small">stderr</span><pre>{r.stderr}</pre></>}
-          {r.outputTruncated && <p className="small muted">Output was truncated at the practice limit.</p>}
-        </div>)}
-      </div>}
+
     </div>
   </>;
 });

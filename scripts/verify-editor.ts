@@ -37,6 +37,8 @@ let holdRun = false;
 let releaseRun: (() => void) | undefined;
 let practiceEnabled = true;
 let practiceFailure = false;
+let practiceStatus: string | undefined;
+let failPractice = false;
 let caseDrafts = initialCaseDrafts(meta.practice!);
 let failNextCaseSave = false;
 let holdCaseSave = false;
@@ -75,10 +77,13 @@ await page.route("**/api/**", async (route) => {
     if (route.request().method() === "GET") data = { enabled: practiceEnabled, reason: "Fixture runner has no practice capability" };
     else {
       runRequests++;
+      if (failPractice) { await route.fulfill({ status: 503, json: { error: "Fixture runner unavailable" } }); return; }
       const request = route.request().postDataJSON();
       if (holdRun) await new Promise<void>((resolve) => { releaseRun = resolve; });
-      const c = request.cases[0];
-      data = { version: 1, sandboxed: true, durationMs: 12, results: [{ id: c.id, status: practiceFailure ? "runtime_error" : Object.hasOwn(c, "expected") ? "passed" : "completed", ...(practiceFailure ? {} : { actual: c.inputs.n * 2 }), stdout: "fixture stdout", stderr: practiceFailure ? "solution.go:3: fixture panic" : "", durationMs: 10, outputTruncated: false }] };
+      data = { version: 1, sandboxed: true, durationMs: 12, results: request.cases.map((c: any) => {
+        const status = practiceStatus ?? (practiceFailure ? "runtime_error" : Object.hasOwn(c, "expected") ? "passed" : "completed");
+        return { id: c.id, status, ...(["passed", "failed", "completed"].includes(status) ? { actual: c.inputs.n * 2 } : {}), stdout: "fixture stdout", stderr: ["compile_error", "runtime_error"].includes(status) ? "solution.go:2: fixture error" : "", durationMs: 10, outputTruncated: status === "runtime_error" };
+      }) };
     }
   }
   else if (path.endsWith("/cases")) {
@@ -702,6 +707,9 @@ try {
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await casesSaved();
   const runButton = () => page.getByRole("button", { name: "Run", exact: true });
+  await page.getByRole("tab", { name: "Test Result", exact: true }).click();
+  await page.getByText(/No practice results yet/).waitFor();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await openFile("helpers.ts");
   await replace("export function double(n: number) { return n * 2; }\n// practice edit");
   const chatCount = chats.length;
@@ -709,23 +717,34 @@ try {
   holdRun = true;
   const callsBefore = runRequests;
   await runButton().click();
-  await casesPanel.getByText("Running selected case…", { exact: true }).waitFor();
+  await page.getByText("Running practice cases…", { exact: true }).waitFor();
   assert.equal(runRequests, callsBefore, "run waits for pending code saves");
   assert.equal(await page.getByRole("button", { name: "Run", exact: true }).isDisabled(), true);
   const dispatchedRun = page.waitForRequest((req) => req.url().endsWith("/run") && req.method() === "POST");
   holdSaves = false;
   heldSaves.splice(0).forEach((resolve) => resolve());
   await dispatchedRun;
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await input.fill("6");
   holdRun = false;
   releaseRun!();
   const practiceResult = page.getByRole("region", { name: "Practice result", exact: true });
-  await practiceResult.getByText(/Practice: (passed|completed)/).waitFor();
+  await page.getByRole("tab", { name: "Test Result", exact: true }).click();
+  await practiceResult.getByText(/Matches expected output|Completed — no expected/, { exact: false }).first().waitFor();
   assert.equal(runRequests, callsBefore + 1);
   assert.match(await practiceResult.innerText(), /before your latest code or case edits/);
   await runButton().click();
-  await practiceResult.getByText("12", { exact: true }).waitFor();
+  await practiceResult.getByText("12", { exact: true }).first().waitFor();
   assert.doesNotMatch(await practiceResult.innerText(), /before your latest/);
+  const resultCases = page.getByRole("tablist", { name: "Case results", exact: true });
+  assert.equal(await resultCases.getByRole("tab").count(), caseDrafts.cases.length);
+  await resultCases.getByRole("tab").first().click();
+  await practiceResult.getByText("Expected output", { exact: true }).waitFor();
+  await resultCases.getByRole("tab").nth(1).click();
+  await practiceResult.getByText("Completed — no expected output; ungraded", { exact: true }).waitFor();
+  await practiceResult.getByText("Input: n", { exact: true }).waitFor();
+  await practiceResult.getByText("Actual output", { exact: true }).waitFor();
+  assert.equal(await editorDocument(), "export function double(n: number) { return n * 2; }\n// practice edit");
   holdRun = true;
   const pendingRun = page.waitForRequest((req) => req.url().endsWith("/run") && req.method() === "POST");
   await runButton().click();
@@ -743,6 +762,7 @@ try {
   // Even restoring identical text cannot certify which snapshot ran while saves
   // and server-side capability checks were in flight.
   await replace("export function double(n: number) { return n * 3; }");
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await input.fill("{");
   assert.equal(await runButton().isDisabled(), true);
   await input.fill("6");
@@ -750,7 +770,7 @@ try {
   await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("code");
   const runCount = runRequests;
   await runButton().click();
-  await casesPanel.getByRole("alert").filter({ hasText: "Fixture disk full" }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "Fixture disk full" }).first().waitFor();
   assert.equal(runRequests, runCount, "failed code saves cannot dispatch practice");
   assert.equal(await page.locator(".workbench > .error").filter({ hasText: "Fixture disk full" }).isVisible(), true, "toolbar run failures stay visible from focused Code layout");
   failSavePath = undefined;
@@ -758,10 +778,11 @@ try {
   await openFile("helpers.ts");
   await page.locator(".cm-content").click();
   const previousChecks = checkRequests;
+  const keyboardRunResponse = page.waitForResponse(r => r.url().endsWith("/run") && r.request().method() === "POST");
   const keyboardRun = page.waitForRequest(req => req.url().endsWith("/run") && req.method() === "POST");
   await page.keyboard.press("Control+Shift+Enter");
   await keyboardRun;
-  await page.waitForResponse(r => r.url().endsWith("/run") && r.request().method() === "POST");
+  await keyboardRunResponse;
   assert.equal(checkRequests, previousChecks, "practice shortcut never submits canonical checks");
   holdCheck = true;
   await page.locator(".cm-content").click();
@@ -781,7 +802,7 @@ try {
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await casesSaved();
   await runButton().click();
-  await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Practice: (passed|completed)/).waitFor();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Matches expected output|Completed — no expected/).first().waitFor();
   track.runner = "go";
   me.runners.push({ ...me.runners[0]!, id: "go", label: "Go", syntax: "go" });
   meta.practice!.entry = { file: "solution.go", symbol: "Double" };
@@ -790,11 +811,37 @@ try {
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await casesSaved();
   await runButton().click();
-  await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Practice: (passed|completed)/).waitFor();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Matches expected output|Completed — no expected/).first().waitFor();
   practiceFailure = true;
   await runButton().click();
-  await page.getByRole("region", { name: "Practice result", exact: true }).getByText("Practice: runtime error", { exact: true }).waitFor();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText("Runtime error", { exact: true }).waitFor();
   practiceFailure = false;
+  for (const [status, label] of [["failed", "Does not match expected output"], ["compile_error", "Compile error"], ["timeout", "Timed out"], ["invalid_output", "Invalid output"], ["skipped", "Skipped"]]) {
+    practiceStatus = status;
+    await runButton().click();
+    await page.getByRole("region", { name: "Practice result", exact: true }).getByText(new RegExp(`^${label}`)).first().waitFor();
+  }
+  practiceStatus = undefined;
+  failPractice = true;
+  await runButton().click();
+  await page.getByRole("alert").filter({ hasText: "Practice run unavailable: Fixture runner unavailable" }).waitFor();
+  failPractice = false;
+  await runButton().click();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Matches expected output|Completed — no expected/).first().waitFor();
+  const beforeSubmitResult = await page.getByRole("region", { name: "Practice result", exact: true }).innerText();
+  const submittedResult = page.waitForResponse(r => r.url().endsWith("/check"));
+  await page.getByRole("button", { name: "Submit", exact: true }).click();
+  await (await submittedResult).finished();
+  await page.waitForFunction(() => !document.querySelector<HTMLButtonElement>('button[aria-label="Submit"]')!.disabled);
+  await page.getByRole("tab", { name: "Test Result", exact: true }).click();
+  assert.equal(await page.getByRole("region", { name: "Practice result", exact: true }).innerText(), beforeSubmitResult, "canonical checks never overwrite practice outcomes");
+  await page.setViewportSize({ width: 390, height: 600 });
+  await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Code", exact: true }).click();
+  await page.getByRole("tab", { name: "Test Result", exact: true }).click();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText("Actual output", { exact: true }).scrollIntoViewIfNeeded();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  console.log("PASS: Test Result empty/running/per-case states, recorded values, errors, stale results, independent Submit output and short phone scrolling");
   practiceEnabled = false;
   await page.reload();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();

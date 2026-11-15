@@ -1884,3 +1884,8 @@ textarea.mono {
 .tablewrap {
   overflow-x: auto;
 }
+
+@media (max-width: 600px) {
+  .results-toolbar { flex-wrap: wrap; }
+  .results-toolbar > .spacer { display: none; }
+}
