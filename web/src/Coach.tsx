@@ -40,6 +40,7 @@ export function Coach(props: {
   beforeSend: () => Promise<void>;
   onHelp?: (h: Help) => void;
   onVerdict?: (v: "pass" | "revise") => void;
+  onCollapse?: () => void;
 }) {
   useChats();
   const { track, lesson } = props;
@@ -133,6 +134,7 @@ export function Coach(props: {
   return (
     <section className="coach" aria-label="Coach">
       <div className="coach-head">
+        {props.onCollapse && <button type="button" className="panel-fold" aria-label="Collapse coach panel" aria-expanded={true} onClick={props.onCollapse}>›</button>}
         <h2>Coach</h2>
         <ModelPicker
           value={provider}

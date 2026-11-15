@@ -686,6 +686,60 @@ a {
   display: flex;
   flex-direction: column;
 }
+.side-panel, .panel-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.panel-content, .panel-content > .lesson-nav, .panel-content > .coach {
+  flex: 1;
+}
+.learn.narrow > .side-panel {
+  flex: 1;
+}
+.panel-fold {
+  background: none;
+  border: 1px solid var(--line);
+  padding: 1px 7px;
+  flex-shrink: 0;
+  line-height: 1.5;
+}
+.nav-head .panel-fold {
+  float: right;
+  margin-left: 6px;
+}
+.panel-rail {
+  flex: 1;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  border: none;
+  border-inline: 1px solid var(--line);
+  padding: 12px 6px;
+  background: var(--sunken);
+  text-align: start;
+  border-radius: 0;
+}
+.resize-handle {
+  background: var(--line);
+  touch-action: none;
+  user-select: none;
+  z-index: 1;
+  flex-shrink: 0;
+}
+.resize-handle.vertical {
+  cursor: col-resize;
+}
+.resize-handle.horizontal {
+  cursor: row-resize;
+  height: 6px;
+}
+.resize-handle:hover, .resize-handle:focus-visible {
+  background: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .pane-switch {
   display: flex;
   border-bottom: 1px solid var(--line);
@@ -965,6 +1019,51 @@ a {
 .editor .cm-focused {
   outline: none;
 }
+.editor .cm-selectionMatch {
+  background: var(--accent-soft);
+  outline: 1px solid var(--accent);
+}
+.editor .cm-tooltip {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-family: var(--sans);
+  font-size: 13px;
+}
+.editor .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.editor .cm-completionInfo, .code-documentation {
+  max-width: min(480px, 85vw);
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+}
+.code-documentation pre {
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  margin: 0 0 6px;
+}
+.code-documentation > div {
+  font: 13px/1.5 var(--sans);
+}
+.editor .cm-diagnostic {
+  border-left-color: var(--bad);
+}
+.editor .cm-lintRange-error, .editor .cm-lintRange-warning {
+  background-image: none;
+  text-decoration: underline wavy var(--bad);
+  text-underline-offset: 3px;
+}
+.editor .cm-lintRange-warning {
+  text-decoration-color: var(--warn);
+}
+.editor .cm-lintPoint-error::after {
+  border-bottom-color: var(--bad);
+}
 .editor:focus-within {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
@@ -998,6 +1097,63 @@ a {
   background: var(--sunken);
   padding: 4px 12px 8px;
   flex-shrink: 0;
+}
+.results-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.results-toolbar > button[role="tab"] {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+.results-toolbar > button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+}
+.results-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  max-height: 45%;
+  min-height: 70px;
+  overflow: hidden;
+}
+.results-panel > .output, .problems {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  margin: 0;
+  padding: 4px 10px 8px;
+  background: var(--sunken);
+}
+.problem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  padding: 6px 3px;
+  font-size: 12px;
+}
+.problem:hover {
+  background: var(--panel);
+}
+.problem-location {
+  font-family: var(--mono);
+  color: var(--bad);
+}
+.problem.warning .problem-location {
+  color: var(--warn);
 }
 .output .cmd {
   margin: 6px 0 2px;
