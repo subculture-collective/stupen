@@ -50,10 +50,15 @@ Select a problem to open its file at the reported line and column. Editing inval
 the old check diagnostics; the original check output remains available and is labelled
 as predating the edits.
 
-On desktop, the lesson list and coach can collapse and resize. The Problems/Check
+On desktop, Description and Code scroll independently, with Problems and Check output
+below Code. Problem List opens lesson navigation without replacing the description.
+The workspace toolbar keeps Run checks (or written grading) in reach. Coach folds
+without losing its draft or help limit; it starts folded for a new browser.
+The description and coach panes resize. The Problems/Check
 output panel can collapse and resize vertically. Splitters support dragging, arrow
-keys, Shift+arrows, Home and End. Panel sizes and side-panel collapse states persist
-in this browser. Narrow screens use the existing Lessons/Lesson/Coach tabs.
+keys, Shift+arrows, Home and End. Panel sizes and coach collapse state persist
+in this browser. Narrow screens use Description/Code/Coach tabs while keeping the
+editor and coach mounted.
 
 Bundled Go and Python documentation comes from their toolchains, with notices under
 `web/public/licenses/`. Refresh it with `node scripts/editor-docs.ts` using Go and

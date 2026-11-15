@@ -7,7 +7,7 @@ import type { LessonMeta, Me, Track, TrackState } from "../web/src/api.ts";
 const base = process.env.BASE ?? "http://127.0.0.1:5198";
 const prefix = new URL(base).pathname.replace(/\/$/, "");
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/google/chrome/chrome", args: ["--no-sandbox"] });
-const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors: string[] = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const code: Record<string, string> = {
@@ -19,7 +19,7 @@ const code: Record<string, string> = {
   "solution.test.ts": 'import { test } from "node:test";\n',
 };
 const track: Track = { id: "editor-check", title: "Editor checks", subject: "Programming", runner: "typescript", level: "beginner", goals: "Practise", background: "", style: "", sessionMinutes: 20, defaultCeiling: 0, provider: "claude", web: false, createdAt: "", updatedAt: "" };
-const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.", hints: [], sources: [], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
+const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.\n\n" + "Read this lesson while coding.\n\n".repeat(80), hints: [], sources: [], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
 const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [{ ...meta, help: null, lastPassed: null }], materials: [], jobs: [] };
 const me: Me = { user: "fixture", authMode: "proxy", isAdmin: false, sandbox: { sandboxed: true, detail: "Fixture" }, docker: { ok: false }, runners: [{ id: "typescript", label: "TypeScript", syntax: "typescript", layout: "", graded: null, ok: true }], environments: [], levels: [] };
 
@@ -132,16 +132,17 @@ try {
   console.log("PASS: Python completion, builtin hover and local docstrings");
 
   const coach = page.getByRole("separator", { name: "Resize coach panel" });
+  await page.getByRole("button", { name: "Expand coach panel" }).click();
   await coach.focus();
   await page.keyboard.press("ArrowLeft");
   assert.equal(await coach.getAttribute("aria-valuenow"), "410");
-  const lessons = page.getByRole("separator", { name: "Resize lessons panel" });
-  const box = (await lessons.boundingBox())!;
+  const description = page.getByRole("separator", { name: "Resize description panel" });
+  const box = (await description.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + 80);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 40, box.y + 80);
   await page.mouse.up();
-  assert.equal(await lessons.getAttribute("aria-valuenow"), "300");
+  assert.equal(await description.getAttribute("aria-valuenow"), "420");
   const results = page.getByRole("separator", { name: "Resize results panel" });
   await results.focus();
   await page.keyboard.press("ArrowUp");
@@ -149,14 +150,50 @@ try {
   await page.getByRole("button", { name: "Collapse results panel" }).click();
   assert.equal(await results.count(), 0);
   await page.getByRole("button", { name: "Expand results panel" }).click();
-  await page.getByRole("button", { name: "Collapse lessons panel" }).click();
   await page.getByRole("button", { name: "Collapse coach panel" }).click();
   await page.reload();
-  await page.getByRole("button", { name: "Expand lessons panel" }).click();
   await page.getByRole("button", { name: "Expand coach panel" }).click();
-  assert.equal(await lessons.getAttribute("aria-valuenow"), "300");
+  assert.equal(await description.getAttribute("aria-valuenow"), "420");
   assert.equal(await coach.getAttribute("aria-valuenow"), "410");
   console.log("PASS: keyboard/pointer resizing, collapse/expand and persisted sizes");
+
+  // The two content panes scroll independently; controls and results stay in reach.
+  await page.getByRole("button", { name: "Collapse coach panel" }).click();
+  await replace(Array.from({ length: 160 }, (_, i) => `# Code line ${i}`).join("\n"));
+  for (const viewport of [{ width: 1153, height: 814 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    const reading = page.getByRole("region", { name: "Description", exact: true });
+    const codePane = page.getByRole("region", { name: "Code", exact: true });
+    const r = (await reading.boundingBox())!;
+    const c = (await codePane.boundingBox())!;
+    assert.ok(r.width >= 220 && c.width >= 300 && r.x + r.width <= c.x, "reading and code remain side by side");
+    const toolbar = (await page.getByRole("button", { name: /Run checks/ }).boundingBox())!;
+    assert.ok(toolbar.y >= 0 && toolbar.y + toolbar.height <= viewport.height);
+    await page.locator(".brief").evaluate((e) => { e.scrollTop = 500; });
+    assert.ok(await page.locator(".brief").evaluate((e) => e.scrollTop) > 0);
+    await page.locator(".cm-scroller").evaluate((e) => { e.scrollTop = 400; });
+    assert.ok(await page.locator(".cm-scroller").evaluate((e) => e.scrollTop) > 0);
+    assert.equal(await page.locator(".brief").evaluate((e) => e.scrollTop), 500);
+    await page.locator(".cm-scroller").evaluate((e) => { e.scrollTop = 0; });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+  await page.getByRole("button", { name: "Problem List", exact: true }).click();
+  await page.getByRole("dialog", { name: "Problem List" }).waitFor();
+  await page.keyboard.press("Escape");
+  assert.equal(await page.getByRole("button", { name: "Problem List", exact: true }).evaluate((e) => e === document.activeElement), true);
+  await page.getByRole("button", { name: "Problem List", exact: true }).click();
+  assert.match(await page.getByRole("link", { name: /Editor lesson/ }).getAttribute("href") ?? "", /learn\/01-editor$/);
+  await page.getByRole("link", { name: /Editor lesson/ }).click();
+  assert.equal(await page.getByRole("dialog", { name: "Problem List" }).count(), 0);
+  await page.getByRole("button", { name: "Expand coach panel" }).click();
+  const draft = page.getByRole("textbox", { name: "Message to the coach" });
+  await draft.fill("Keep my question");
+  await page.getByRole("combobox", { name: "Help limit" }).selectOption("2");
+  await page.getByRole("button", { name: "Collapse coach panel" }).click();
+  await page.getByRole("button", { name: "Expand coach panel" }).click();
+  assert.equal(await draft.inputValue(), "Keep my question");
+  assert.equal(await page.getByRole("combobox", { name: "Help limit" }).inputValue(), "2");
+  console.log("PASS: split desktop sizes, independent reading scroll, persistent toolbar, Problem List route and folded coach state");
 
   await openFile("solution.test.ts");
   const before = await page.locator(".cm-content").innerText();
@@ -174,13 +211,24 @@ try {
   await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
   await page.screenshot({ path: "captures/editor-dark.png" });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("tab", { name: "Lesson", exact: true }).click();
-  assert.equal(await lessons.count(), 0);
+  await page.getByRole("tab", { name: "Code", exact: true }).click();
+  assert.equal(await description.count(), 0);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.getByRole("tab", { name: "Description", exact: true }).click();
+  await page.getByRole("region", { name: "Description", exact: true }).waitFor();
+  assert.equal(await page.locator(".cm-content").isVisible(), false);
   await page.getByRole("tab", { name: "Coach", exact: true }).click();
   await page.locator(".coach").waitFor();
-  await page.getByRole("tab", { name: "Lesson", exact: true }).click();
+  assert.equal(await draft.inputValue(), "Keep my question");
+  await page.getByRole("tab", { name: "Code", exact: true }).click();
   await page.locator(".cm-content").waitFor();
+  assert.match(await page.locator(".cm-content").innerText(), /broken/);
+  await page.getByRole("tab", { name: "Code", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await page.getByRole("tab", { name: "Coach", exact: true }).getAttribute("aria-selected"), "true");
+  await page.keyboard.press("Home");
+  assert.equal(await page.getByRole("tab", { name: "Description", exact: true }).getAttribute("aria-selected"), "true");
+  await page.getByRole("tab", { name: "Code", exact: true }).click();
   await page.screenshot({ path: "captures/editor-phone.png" });
   assert.deepEqual(errors, []);
   console.log("PASS: narrow layout, dark theme, no browser errors");
