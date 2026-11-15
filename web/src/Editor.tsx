@@ -67,7 +67,8 @@ const highlight = HighlightStyle.define([
 const cache = new Map<string, { state: EditorState; scroll: number }>();
 const assistance = new Compartment();
 
-type Handlers = { onChange: (v: string) => void; onSave: () => void; onRun: () => void; onSelect?: ((text: string) => void) | undefined };
+export type Caret = { line: number; column: number; cursors: number };
+type Handlers = { onChange: (v: string) => void; onSave: () => void; onRun: () => void; onSelect?: ((text: string) => void) | undefined; onCaret?: ((caret: Caret) => void) | undefined };
 
 /**
  * The live callbacks for each area and file. A cached state looks its callbacks
@@ -75,12 +76,33 @@ type Handlers = { onChange: (v: string) => void; onSave: () => void; onRun: () =
  * never the component that first created it.
  */
 const handlerFor = new Map<string, Handlers>();
-const call = (key: string, name: keyof Handlers, arg?: string) => {
+const call = (key: string, name: "onChange" | "onSave" | "onRun", arg?: string) => {
   const h = handlerFor.get(key);
   if (name === "onChange") h?.onChange(arg ?? "");
-  else if (name === "onSelect") h?.onSelect?.(arg ?? "");
   else h?.[name]();
 };
+
+function reportSelection(key: string, state: EditorState) {
+  const h = handlerFor.get(key);
+  const r = state.selection.main;
+  const line = state.doc.lineAt(r.head);
+  h?.onSelect?.(r.empty ? "" : state.sliceDoc(r.from, r.to).slice(0, 8000));
+  h?.onCaret?.({ line: line.number, column: r.head - line.from + 1, cursors: state.selection.ranges.length });
+}
+
+/** File syntax, independent of the track's check runner. Unknown files stay plain text. */
+export function fileLanguage(path: string): string {
+  const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
+  const names: Record<string, string> = {
+    ts: "TypeScript", mts: "TypeScript", cts: "TypeScript", tsx: "TypeScript JSX",
+    js: "JavaScript", mjs: "JavaScript", cjs: "JavaScript", jsx: "JavaScript JSX",
+    py: "Python", go: "Go", rs: "Rust", java: "Java", c: "C", h: "C/C++", cpp: "C++", cc: "C++", hpp: "C++", cxx: "C++",
+    json: "JSON", sql: "SQL", md: "Markdown", markdown: "Markdown", txt: "Plain text",
+    html: "HTML", htm: "HTML", vue: "Vue", svelte: "Svelte", xml: "XML", svg: "SVG", csproj: "XML",
+    css: "CSS", scss: "SCSS", sh: "Shell", bash: "Bash", zsh: "Zsh", toml: "TOML", rb: "Ruby", rake: "Ruby", php: "PHP", cs: "C#", kt: "Kotlin", kts: "Kotlin",
+  };
+  return path.split("/").at(-1) === "Gemfile" ? "Ruby" : names[ext] ?? "Plain text";
+}
 
 /** Tells each visible line how far it is indented, so its wrapped continuation lines sit under its own code. */
 function indentDecorations(view: EditorView): DecorationSet {
@@ -153,10 +175,7 @@ function createState(key: string, doc: string, path: string, readOnly: boolean, 
       ]),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) call(key, "onChange", u.state.doc.toString());
-        if (u.selectionSet) {
-          const r = u.state.selection.main;
-          call(key, "onSelect", r.empty ? "" : u.state.sliceDoc(r.from, r.to).slice(0, 8000));
-        }
+        if (u.selectionSet || u.docChanged) reportSelection(key, u.state);
       }),
     ],
   });
@@ -183,6 +202,7 @@ export function Editor(props: {
   onRun: () => void;
   /** Called with the selected text whenever the selection changes. */
   onSelect?: (text: string) => void;
+  onCaret?: (caret: Caret) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -190,7 +210,7 @@ export function Editor(props: {
   const jumped = useRef(false);
   const current = useRef(props);
   current.current = props;
-  handlerFor.set(props.cacheKey, { onChange: props.onChange, onSave: props.onSave, onRun: props.onRun, onSelect: props.onSelect });
+  handlerFor.set(props.cacheKey, { onChange: props.onChange, onSave: props.onSave, onRun: props.onRun, onSelect: props.onSelect, onCaret: props.onCaret });
 
   // One view for the component's lifetime; its state is swapped per file.
   useEffect(() => {
@@ -210,6 +230,7 @@ export function Editor(props: {
     if (shown.current) cache.set(shown.current, { state: v.state, scroll: v.scrollDOM.scrollTop });
     const saved = cache.get(props.cacheKey);
     v.setState(saved?.state ?? createState(props.cacheKey, props.value, props.path, props.readOnly, props.label));
+    reportSelection(props.cacheKey, v.state);
     shown.current = props.cacheKey;
     jumped.current = false;
     // Restore the file's scroll position, unless a jump to a failing line has just moved it.

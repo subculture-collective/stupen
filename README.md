@@ -32,7 +32,14 @@ It is not released. SUBCULT runs it on its homelab for invited learners; the sit
 
 The lesson editor supports multiple cursors (Ctrl/Cmd+D selects the next occurrence;
 Alt-drag makes a rectangular selection), matching-word highlights, automatic bracket
-and quote closing, and autocomplete (Ctrl+Space). Hover over a symbol for documentation.
+and quote closing, and autocomplete (Ctrl+Space; Enter accepts). Hover over a symbol
+for documentation. The Code toolbar shows the active file's language and the track's
+check runtime, with read-only files labelled. The status bar reports actual save
+progress/errors and the primary caret's 1-based line/column, plus multiple cursors.
+Autosave follows edits across files; Ctrl/Cmd+S saves the active file, and
+Ctrl/Cmd+Enter saves all files before running checks (or submitting written grading).
+Tab/Shift+Tab indent/unindent. Press Escape then Tab to leave the editor, or toggle
+Tab focus mode with Ctrl+M (Option+Shift+M on macOS). Keyboard help is in Code.
 
 - **TypeScript/JavaScript:** completion, inferred types, hover documentation and live
   diagnostics across the lesson's files, using a browser worker. Standard JavaScript
