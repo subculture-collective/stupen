@@ -1,6 +1,7 @@
 /** Browser conformance check against a local Vite server, with isolated lesson API fixtures. */
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
+import { publishedPractice } from "../server/practice.ts";
 import { chromium } from "playwright-core";
 import type { ChatBody, LessonMeta, Me, Track, TrackState } from "../web/src/api.ts";
 
@@ -20,7 +21,9 @@ const code: Record<string, string> = {
 };
 const track: Track = { id: "editor-check", title: "Editor checks", subject: "Programming", runner: "typescript", level: "beginner", goals: "Practise", background: "", style: "", sessionMinutes: 20, defaultCeiling: 0, provider: "claude", web: false, createdAt: "", updatedAt: "" };
 const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.\n\n" + "Read this lesson while coding.\n\n".repeat(80), hints: [], sources: [], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
-const second: LessonMeta = { ...meta, id: "02-editor", title: "Next editor lesson", objective: "Next lesson context" };
+meta.practice = publishedPractice(JSON.stringify({ version: 1, entry: { file: "helpers.ts", symbol: "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double two", inputs: { n: 2 }, expected: 4 }] }), track.runner, meta.files, meta.verified)!;
+const { practice: _samples, ...legacyMeta } = meta;
+const second: LessonMeta = { ...legacyMeta, id: "02-editor", title: "Next editor lesson", objective: "Next lesson context" };
 const state: TrackState = { track, plan: "", outline: { lessons: [], sources: [], updatedAt: "" }, notes: "", history: [], lessons: [meta, second].map((lesson) => ({ ...lesson, help: null, lastPassed: null })), materials: [], jobs: [] };
 const me: Me = { user: "fixture", authMode: "proxy", isAdmin: false, sandbox: { sandboxed: true, detail: "Fixture" }, docker: { ok: false }, runners: [{ id: "typescript", label: "TypeScript", syntax: "typescript", layout: "", graded: null, ok: true }], environments: [], levels: [] };
 
@@ -86,6 +89,9 @@ try {
   const saved = () => page.locator(".save-state").filter({ hasText: /^Saved$/ }).waitFor();
   const caret = (text: string) => page.locator(".caret-status").filter({ hasText: text }).waitFor();
   await saved();
+  assert.ok(meta.practice, "fixture publishes validated optional sample metadata");
+  assert.equal(await page.getByRole("button", { name: "Run", exact: true }).count(), 0, "metadata alone never advertises practice execution");
+  assert.equal(await page.getByRole("button", { name: /Run checks/ }).isEnabled(), true);
   assert.match(await page.locator(".editor-toolbar").innerText(), /solution.ts.*TypeScript/s);
   assert.match(await page.locator(".editor-toolbar").innerText(), /Checks: Node 24/);
   assert.equal(await page.locator(".editor-toolbar select").count(), 0);
