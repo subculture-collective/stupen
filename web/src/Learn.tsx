@@ -21,11 +21,24 @@ function usePanelSize(key: string, initial: number, min: number, max: number) {
 }
 
 type Pane = "reading" | "code" | "coach";
+type WorkspaceLayout = "split" | "reading" | "code" | "results";
 
 export function Learn(props: { me: Me; state: TrackState; lessonId: string | undefined; refresh: () => Promise<void>; onJob: (j: Job) => void }) {
   const { state } = props;
   const narrow = useMedia("(max-width: 980px)");
   const [pane, setPane] = useState<Pane>("code");
+  const [layout, setLayout] = useState<WorkspaceLayout>("split");
+  const layoutSelect = useRef<HTMLSelectElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const changeLayout = (next: WorkspaceLayout) => {
+    if (next === layout) return;
+    if (layout === "split") returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setLayout(next);
+    if (next === "split") requestAnimationFrame(() => {
+      const target = returnFocus.current;
+      (target?.isConnected && target.getClientRects().length ? target : layoutSelect.current)?.focus();
+    });
+  };
   const [lesson, setLesson] = useState<{ meta: LessonMeta; files: LessonFile[]; help: Help }>();
   const [error, setError] = useState<string>();
   const contextKey = `${state.track.id}/${props.lessonId ?? ""}`;
@@ -64,14 +77,18 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   }, [loadLesson]);
 
   const runner = props.me.runners.find((r) => r.id === state.track.runner);
-  const openCoach = () => { setCoachClosed(false); setPane("coach"); };
+  const openCoach = () => { setLayout("split"); setCoachClosed(false); setPane("coach"); };
 
   return (
-    <div className={`learn ${narrow ? "narrow" : ""}`} style={narrow ? undefined : { gridTemplateColumns: `minmax(0, 1fr) ${coachClosed ? "0 36px" : `6px minmax(260px, min(${coachWidth}px, 32%))`}` }}>
+    <div className={`learn ${narrow ? "narrow" : ""} layout-${layout}`} style={narrow ? undefined : { gridTemplateColumns: layout === "split" ? `minmax(0, 1fr) ${coachClosed ? "0 36px" : `6px minmax(260px, min(${coachWidth}px, 32%))`}` : "minmax(0, 1fr)" }}>
       <div className="workspace-controls">
         <button type="button" onClick={() => problemList.current?.showModal()} aria-haspopup="dialog">Problem List</button>
+        <label className="layout-control">Layouts <select ref={layoutSelect} aria-label="Layouts" value={layout} onChange={(e) => changeLayout((["split", "reading", "code", "results"] as const).find((id) => id === e.target.value) ?? "split")}>
+          <option value="split">Split</option><option value="reading">Focus reading</option><option value="code">Focus Code</option><option value="results">Focus results</option>
+        </select></label>
+        <button type="button" onClick={() => { setLayout("split"); setCoachWidth(400); setCoachClosed(true); setPane("code"); workbench.current?.resetLayout(); }}>Reset layout</button>
         <span className="spacer" />
-        {!narrow && <button type="button" aria-expanded={!coachClosed} aria-controls="workspace-coach" onClick={() => setCoachClosed(!coachClosed)}>Coach</button>}
+        {!narrow && <button type="button" aria-expanded={layout === "split" && !coachClosed} aria-controls="workspace-coach" onClick={() => layout === "split" ? setCoachClosed(!coachClosed) : openCoach()}>Coach</button>}
       </div>
       <dialog ref={problemList} className="problem-list" aria-label="Problem List">
         <div className="problem-list-head"><h2>Problem List</h2><button type="button" autoFocus onClick={() => problemList.current?.close()}>Close</button></div>
@@ -79,7 +96,7 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
           <LessonNav state={state} current={props.lessonId} onJob={props.onJob} refresh={props.refresh} />
         </div>
       </dialog>
-      {narrow && (
+      {narrow && layout === "split" && (
         <div className="pane-switch" role="tablist" aria-label="Workspace panes">
           {(["reading", "code", "coach"] as const).map((p) => (
             <button key={p} type="button" role="tab" tabIndex={pane === p ? 0 : -1} aria-selected={pane === p} className={pane === p ? "on" : ""} onClick={() => setPane(p)} onKeyDown={(e) => tabKeys(e, ["reading", "code", "coach"], pane, setPane)}>
@@ -88,7 +105,7 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
           ))}
         </div>
       )}
-      <div className="work" hidden={narrow && pane === "coach"}>
+      <div className="work" hidden={layout === "split" && narrow && pane === "coach"}>
         {error && <p className="error">{error}</p>}
         {!props.lessonId && !state.lessons.length && <NoLessons state={state} onJob={props.onJob} />}
         {lesson && (
@@ -112,13 +129,15 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
             refresh={props.refresh}
             narrow={narrow}
             pane={pane}
-            showCode={() => setPane("code")}
+            layout={layout}
+            changeLayout={changeLayout}
+            showCode={() => { setLayout("split"); setPane("code"); }}
             askCoach={openCoach}
           />
         )}
       </div>
-      {!narrow && (coachClosed ? <div /> : <ResizeHandle label="Resize coach panel" value={coachWidth} min={260} max={600} reverse onChange={setCoachWidth} />)}
-      <div id="workspace-coach" className="side-panel" hidden={narrow && pane !== "coach"}>
+      {!narrow && layout === "split" && (coachClosed ? <div /> : <ResizeHandle label="Resize coach panel" value={coachWidth} min={260} max={600} reverse onChange={setCoachWidth} />)}
+      <div id="workspace-coach" className="side-panel" hidden={layout !== "split" || (narrow && pane !== "coach")}>
         {!narrow && coachClosed && <button className="panel-rail" type="button" aria-label="Expand coach panel" aria-expanded={false} onClick={() => setCoachClosed(false)}>‹ Coach</button>}
         <div className="panel-content" hidden={!narrow && coachClosed}>
         <Coach
@@ -290,7 +309,7 @@ function NoLessons(props: { state: TrackState; onJob: (j: Job) => void }) {
 
 // ---------- workbench ----------
 
-export type WorkbenchHandle = { vars: () => PromptVars; saveAll: () => Promise<void> };
+export type WorkbenchHandle = { vars: () => PromptVars; saveAll: () => Promise<void>; resetLayout: () => void };
 
 type FileState = { content: string; saved: string; loaded: boolean; saving?: boolean; saveError?: string | undefined };
 
@@ -323,6 +342,8 @@ const Workbench = forwardRef<
     askCoach: () => void;
     narrow: boolean;
     pane: Pane;
+    layout: WorkspaceLayout;
+    changeLayout: (layout: WorkspaceLayout) => void;
     showCode: () => void;
   }
 >(function Workbench(props, ref) {
@@ -453,6 +474,7 @@ const Workbench = forwardRef<
   useImperativeHandle(ref, () => ({
     vars: () => ({ file: tab === "preview" ? "" : tab, selection: selection.current, failing: failingText(checks) }),
     saveAll,
+    resetLayout: () => { setDescriptionWidth(380); setResultHeight(210); setOutputOpen(false); },
   }));
 
   const edit = (path: string, value: string) => {
@@ -616,8 +638,8 @@ const Workbench = forwardRef<
         </p>
       )}
       {!props.runnerOk && !props.graded && <p className="notice small">Checks can't run on this server: {props.runnerDetail}.</p>}
-      <div className="workbench-panes" style={props.narrow ? undefined : { gridTemplateColumns: `minmax(220px, min(${descriptionWidth}px, 45%)) 6px minmax(0, 1fr)` }}>
-        <section className="reading-pane" aria-label="Lesson reference" hidden={props.narrow && props.pane !== "reading"}>
+      <div className={`workbench-panes layout-${props.layout}`} style={props.narrow ? undefined : { gridTemplateColumns: props.layout === "split" ? `minmax(220px, min(${descriptionWidth}px, 45%)) 6px minmax(0, 1fr)` : "minmax(0, 1fr)" }}>
+        <section className="reading-pane" aria-label="Lesson reference" hidden={props.layout !== "reading" && (props.layout !== "split" || (props.narrow && props.pane !== "reading"))}>
           <header className="lesson-head">
             <div>
               <h1>{meta.title}</h1>
@@ -635,6 +657,7 @@ const Workbench = forwardRef<
             </div>
           </header>
 
+          <div className="pane-controls"><span className="small muted">Reading</span><button type="button" className="small-button" aria-label={props.layout === "reading" ? "Restore split layout" : "Maximize reading pane"} onClick={() => props.changeLayout(props.layout === "reading" ? "split" : "reading")}>{props.layout === "reading" ? "Restore" : "Maximize"}</button></div>
           <div className="reference-tabs" role="tablist" aria-label="Lesson reference">
             {(["description", "hints", "solution"] as const).map((id) => <button key={id} id={`reading-${id}-tab`} type="button" role="tab" tabIndex={readingTab === id ? 0 : -1} aria-selected={readingTab === id} aria-controls={`reading-${id}`} onClick={() => setReadingTab(id)} onKeyDown={(e) => tabKeys(e, ["description", "hints", "solution"], readingTab, setReadingTab)}>{id === "description" ? "Description" : id === "hints" ? "Hints" : "Reference solution"}</button>)}
           </div>
@@ -702,10 +725,11 @@ const Workbench = forwardRef<
             {solution?.map((f) => <div key={f.path}><p className="small muted">{f.path}</p><pre className="code-block">{f.content}</pre></div>)}
           </div>
         </section>
-        {!props.narrow && <ResizeHandle label="Resize description panel" value={descriptionWidth} min={220} max={640} onChange={setDescriptionWidth} />}
-        <section className="code-pane" aria-label="Code" hidden={props.narrow && props.pane !== "code"}>
-          <div className="editor-toolbar">
+        {!props.narrow && props.layout === "split" && <ResizeHandle label="Resize description panel" value={descriptionWidth} min={220} max={640} onChange={setDescriptionWidth} />}
+        <section className="code-pane" aria-label="Code" hidden={props.layout === "reading" || (props.layout === "split" && props.narrow && props.pane !== "code")}>
+          <div className="editor-toolbar" hidden={props.layout === "results"}>
             <h2 className="code-heading">Code</h2>
+            <button type="button" className="small-button" aria-label={props.layout === "code" ? "Restore split layout" : "Maximize Code pane"} onClick={() => props.changeLayout(props.layout === "code" ? "split" : "code")}>{props.layout === "code" ? "Restore" : "Maximize"}</button>
             {current && <><span className="active-file">{current.path}</span><span className="file-language muted">{fileLanguage(current.path)}</span></>}
             <span className="small muted">Checks: {runtime}</span>
             {current && !current.editable && <span className="pill">Read-only</span>}
@@ -714,7 +738,7 @@ const Workbench = forwardRef<
               <p id="editor-help">Ctrl/Cmd+S saves the active file. Ctrl/Cmd+Enter {props.graded ? "submits for coach grading" : "runs checks"}. Ctrl+Space opens completion; Enter accepts. Ctrl/Cmd+D selects the next matching word; Alt-drag selects a rectangle. Tab indents and Shift+Tab unindents. Press Escape, then Tab to leave the editor. Ctrl+M (Option+Shift+M on macOS) toggles Tab focus mode. Hover over a symbol for documentation.</p>
             </details>
           </div>
-          <div className="tabs" role="tablist" aria-label="Lesson">
+          <div className="tabs" role="tablist" aria-label="Lesson" hidden={props.layout === "results"}>
             {allFiles.map((f) => {
               const c = contents[f.path];
               const changed = c && c.content !== c.saved;
@@ -750,7 +774,7 @@ const Workbench = forwardRef<
             )}
           </div>
 
-          <div className="tab-body">
+          <div className="tab-body" hidden={props.layout === "results"}>
             {tab === "preview" ? (
               <div className="preview">
                 <div className="preview-bar">
@@ -788,20 +812,21 @@ const Workbench = forwardRef<
             )}
           </div>
 
-          <div className="editor-status small">
+          <div className="editor-status small" hidden={props.layout === "results"}>
             <span className="save-state" role="status">{saveStatus}</span>
             <span className="spacer" />
             {current && caret && <span className="caret-status" aria-label="Caret position">Ln {caret.line}, Col {caret.column}{caret.cursors > 1 ? ` · ${caret.cursors} cursors` : ""}</span>}
           </div>
-          {saveError && <p className="error small" role="alert">{contents[saveError.path]?.saveError} — Ctrl/Cmd+S retries the active file; Run checks saves all files first.</p>}
-          <div className="results-toolbar" role="tablist" aria-label="Results">
-            <button type="button" role="tab" aria-selected={resultTab === "problems" && outputOpen} aria-controls="lesson-problems" onClick={() => { setResultTab("problems"); setOutputOpen(true); }}>Problems ({problems.length})</button>
-            <button type="button" role="tab" aria-selected={resultTab === "output" && outputOpen} aria-controls="lesson-output" onClick={() => { setResultTab("output"); setOutputOpen(true); }}>Check output</button>
+          {saveError && <p className="error small" role="alert" hidden={props.layout === "results"}>{contents[saveError.path]?.saveError} — Ctrl/Cmd+S retries the active file; Run checks saves all files first.</p>}
+          <div className="results-toolbar" role="tablist" aria-label="Results" hidden={props.layout === "code"}>
+            <button type="button" role="tab" aria-selected={resultTab === "problems" && (outputOpen || props.layout === "results")} aria-controls="lesson-problems" onClick={() => { setResultTab("problems"); if (props.layout !== "results") setOutputOpen(true); }}>Problems ({problems.length})</button>
+            <button type="button" role="tab" aria-selected={resultTab === "output" && (outputOpen || props.layout === "results")} aria-controls="lesson-output" onClick={() => { setResultTab("output"); if (props.layout !== "results") setOutputOpen(true); }}>Check output</button>
             <span className="spacer" />
-            <button type="button" className="panel-fold" aria-label={outputOpen ? "Collapse results panel" : "Expand results panel"} aria-expanded={outputOpen} onClick={() => setOutputOpen(!outputOpen)}>{outputOpen ? "⌄" : "⌃"}</button>
+            <button type="button" className="small-button" aria-label={props.layout === "results" ? "Restore split layout" : "Maximize results pane"} onClick={() => props.changeLayout(props.layout === "results" ? "split" : "results")}>{props.layout === "results" ? "Restore" : "Maximize"}</button>
+            <button type="button" className="panel-fold" hidden={props.layout === "results"} aria-label={outputOpen ? "Collapse results panel" : "Expand results panel"} aria-expanded={outputOpen} onClick={() => setOutputOpen(!outputOpen)}>{outputOpen ? "⌄" : "⌃"}</button>
           </div>
-          {outputOpen && <section className="results-panel" style={{ height: resultHeight }} aria-label="Results panel">
-            <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />
+          {(outputOpen || props.layout === "results") && <section className={`results-panel ${props.layout === "results" ? "maximized" : ""}`} hidden={props.layout === "code"} style={props.layout === "results" ? undefined : { height: resultHeight }} aria-label="Results panel">
+            {props.layout !== "results" && <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />}
             <div id="lesson-problems" role="tabpanel" aria-label="Problems" className="problems" hidden={resultTab !== "problems"}>
               {assistanceError && <p className="notice small" role="status">{assistanceError}</p>}
               {!problems.length && <p className="small muted">No problems reported. Run checks for compiler and test results.</p>}

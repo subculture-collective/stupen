@@ -691,7 +691,12 @@ a {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
+.layout-control { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.layout-control select { padding: 4px; }
+.pane-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 10px; }
+.results-panel.maximized { flex: 1; max-height: none; }
 .problem-list {
   width: min(460px, calc(100% - 24px));
   max-height: 85dvh;
@@ -1069,6 +1074,7 @@ a {
 .editor {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   display: flex;
 }
@@ -1213,7 +1219,7 @@ a {
   flex-direction: column;
   flex-shrink: 0;
   max-height: 45%;
-  min-height: 70px;
+  min-height: 0;
   overflow: hidden;
 }
 .results-panel > .output, .problems {

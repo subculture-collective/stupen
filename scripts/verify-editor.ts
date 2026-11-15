@@ -76,7 +76,10 @@ await page.route("**/api/**", async (route) => {
       code[body.path] = body.content;
       data = { ok: true };
     } else data = { content: code[url.searchParams.get("path")!] };
-  } else if (path.endsWith("/check")) data = { meta, firstPass: false, checks: { at: "", passed: false, sandboxed: true, results: [{ command: "go test", exitCode: 1, durationMs: 1, timedOut: false, output: "./solution.go:6:2: undefined: missing" }] } };
+  } else if (path.endsWith("/check")) {
+    meta.lastChecks = { at: "", passed: false, sandboxed: true, results: [{ command: "go test", exitCode: 1, durationMs: 1, timedOut: false, output: "./solution.go:6:2: undefined: missing" }] };
+    data = { meta, firstPass: false, checks: meta.lastChecks };
+  }
   else throw new Error(`Unexpected fixture request: ${path}`);
   await route.fulfill({ json: data });
 });
@@ -356,6 +359,57 @@ try {
     await page.locator(".cm-scroller").evaluate((e) => { e.scrollTop = 0; });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
+  // Focus modes change geometry only; pane state and the saved split stay intact.
+  await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).click();
+  await page.getByRole("tab", { name: "Check output", exact: true }).click();
+  await page.locator(".cm-scroller").evaluate(async (e) => { e.scrollTop = 400; await new Promise(requestAnimationFrame); });
+  const focusDocument = await editorDocument();
+  const focusSelection = await page.locator(".cm-content").evaluate((e) => (e as HTMLElement & { cmTile: { root: { view: EditorView } } }).cmTile.root.view.state.selection.toJSON());
+  const focusScroll = await page.locator(".cm-scroller").evaluate((e) => e.scrollTop);
+  const focusOutput = await page.locator("#lesson-output").innerText();
+  for (const [buttonName, regionName] of [["Maximize reading pane", "Lesson reference"], ["Maximize Code pane", "Code"], ["Maximize results pane", "Results panel"]]) {
+    const trigger = page.getByRole("button", { name: buttonName!, exact: true });
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    const region = page.getByRole("region", { name: regionName!, exact: true });
+    const focused = (await region.boundingBox())!;
+    const work = (await page.locator(".workbench").boundingBox())!;
+    assert.ok(Math.abs(focused.width - work.width) < 1 && focused.height > work.height * .75, "focus fills the workspace below its toolbar");
+    assert.equal(await page.locator("#workspace-coach").isVisible(), false);
+    await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label")?.startsWith("Maximize"));
+    assert.equal(await trigger.evaluate((e) => e === document.activeElement), true, "restore returns focus to its trigger");
+    assert.equal(await description.getAttribute("aria-valuenow"), "420");
+    assert.equal(await page.getByRole("button", { name: "Expand coach panel" }).isVisible(), true);
+    assert.equal(await editorDocument(), focusDocument);
+    assert.deepEqual(await page.locator(".cm-content").evaluate((e) => (e as HTMLElement & { cmTile: { root: { view: EditorView } } }).cmTile.root.view.state.selection.toJSON()), focusSelection);
+    assert.equal(await page.locator(".cm-scroller").evaluate((e) => e.scrollTop), focusScroll);
+    assert.equal(await page.locator("#lesson-output").innerText(), focusOutput);
+    assert.equal(await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).getAttribute("aria-selected"), "true");
+  }
+  await page.getByRole("button", { name: "Collapse results panel" }).click();
+  await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("results");
+  await page.getByRole("region", { name: "Results panel", exact: true }).waitFor();
+  await page.getByRole("tab", { name: /^Problems/ }).click();
+  await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "Expand results panel" }).isVisible(), true, "restore retains collapsed results even after changing result tabs");
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("Control+z");
+  assert.notEqual(await editorDocument(), focusDocument);
+  await page.keyboard.press("Control+Shift+z");
+  assert.equal(await editorDocument(), focusDocument, "undo/redo survive focus modes");
+  await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("reading");
+  await page.getByRole("button", { name: "Reset layout", exact: true }).click();
+  assert.equal(await description.getAttribute("aria-valuenow"), "380");
+  await page.getByRole("button", { name: "Expand coach panel" }).click();
+  assert.equal(await coach.getAttribute("aria-valuenow"), "400");
+  await page.getByRole("button", { name: "Collapse coach panel" }).click();
+  await page.getByRole("tab", { name: "Check output", exact: true }).click();
+  assert.equal(await results.getAttribute("aria-valuenow"), "210");
+  assert.equal(await editorDocument(), focusDocument, "reset retains code");
+  assert.equal(await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).getAttribute("aria-selected"), "true", "reset retains reading tabs");
+  await referenceTabs.getByRole("tab", { name: "Description", exact: true }).click();
+  console.log("PASS: maximize/restore/reset, keyboard focus, collapsed state, retained sizes/tabs/document/selection/scroll/undo/results");
   await page.getByRole("button", { name: "Problem List", exact: true }).click();
   await page.getByRole("dialog", { name: "Problem List" }).waitFor();
   await page.keyboard.press("Escape");
@@ -411,6 +465,14 @@ try {
   assert.equal(await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).getAttribute("aria-selected"), "true");
   await page.getByRole("tab", { name: "Code", exact: true }).click();
   await page.screenshot({ path: "captures/editor-phone.png" });
+  await page.getByRole("button", { name: "Maximize Code pane", exact: true }).click();
+  await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+  await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).click();
+  await page.getByRole("button", { name: "Maximize reading pane", exact: true }).click();
+  await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+  await page.getByRole("tab", { name: "Code", exact: true }).click();
+  await page.getByRole("button", { name: "Maximize results pane", exact: true }).click();
+  await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
   // Selecting a different lesson changes both the route and the coach request context.
   await page.getByRole("button", { name: "Problem List", exact: true }).click();
   await page.getByRole("link", { name: "Next editor lesson" }).click();
@@ -447,6 +509,33 @@ try {
   await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).click();
   await page.getByText(/No hints were supplied/).waitFor();
   console.log("PASS: empty hints and delayed reveal stay scoped to the originating lesson");
+  await page.evaluate(() => {
+    localStorage.setItem("study-coach:description-width", JSON.stringify(100_000));
+    localStorage.setItem("study-coach:coach-width", JSON.stringify(-500));
+    localStorage.setItem("study-coach:results-height", JSON.stringify("wide"));
+    localStorage.setItem("study-coach:coach-closed", "false");
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.reload();
+  await page.locator(".cm-content").waitFor();
+  assert.equal(await description.getAttribute("aria-valuenow"), "640");
+  assert.equal(await coach.getAttribute("aria-valuenow"), "260");
+  await page.getByRole("tab", { name: "Check output", exact: true }).click();
+  assert.equal(await results.getAttribute("aria-valuenow"), "210");
+  for (const viewport of [{ width: 1153, height: 814 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    const layouts = page.getByRole("combobox", { name: "Layouts", exact: true });
+    const box = (await layouts.boundingBox())!;
+    assert.ok(box.y >= 0 && box.y + box.height <= viewport.height, "layout recovery is always reachable");
+    await layouts.selectOption("results");
+    const focused = (await page.getByRole("region", { name: "Results panel", exact: true }).boundingBox())!;
+    assert.ok(focused.height > 40 && focused.y + focused.height <= viewport.height + 1, "focused results fit after rotation");
+    await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+  }
+  await page.getByRole("button", { name: "Reset layout", exact: true }).click();
+  assert.equal(await page.evaluate(() => localStorage.getItem("study-coach:description-width")), "380");
+  console.log("PASS: touch-sized focus controls, invalid stored geometry and viewport rotation recovery");
   assert.deepEqual(errors, []);
   console.log("PASS: narrow layout, dark theme, no browser errors");
 } catch (error) {

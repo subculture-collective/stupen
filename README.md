@@ -64,6 +64,11 @@ without losing its draft or help limit; it starts folded for a new browser.
 The reading pane has Description, Hints and Reference solution tabs. Switching them
 keeps the editor and results in place. Reference solution requires explicit reveal
 confirmation; revisiting its tab or reloading never fetches protected files by itself.
+Visible Maximize/Restore buttons focus Reading, Code or results below the workspace
+toolbar. Layouts selects the same modes. Restore keeps split sizes, folded state,
+active tabs and editor state; focus mode itself is temporary. Reset layout restores
+default sizes and folded Coach/results without clearing code or tabs. Stored sizes
+are bounded, and the rendered splits adapt to the viewport.
 The description and coach panes resize. The Problems/Check
 output panel can collapse and resize vertically. Splitters support dragging, arrow
 keys, Shift+arrows, Home and End. Panel sizes and coach collapse state persist
