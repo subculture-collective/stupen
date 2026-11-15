@@ -747,6 +747,15 @@ try {
   assert.equal(runRequests, runCount, "failed code saves cannot dispatch practice");
   failSavePath = undefined;
   assert.equal(chats.length, chatCount, "practice never fires grading coach triggers");
+  track.runner = "python";
+  me.runners.push({ ...me.runners[0]!, id: "python", label: "Python", syntax: "python" });
+  meta.practice!.entry = { file: "solution.py", symbol: "double" };
+  code["solution.py"] = "def double(n): return n * 2";
+  await page.reload();
+  await page.getByRole("tab", { name: "Testcases", exact: true }).click();
+  await casesSaved();
+  await runButton().click();
+  await page.getByRole("region", { name: "Practice result", exact: true }).getByText(/Practice: (passed|completed)/).waitFor();
   practiceEnabled = false;
   await page.reload();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();

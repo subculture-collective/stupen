@@ -9,7 +9,7 @@ const running = new Set<string>();
 async function context(user: string, trackId: string, lesson: string) {
   const track = await getTrack(user, trackId);
   const meta = await getLesson(user, trackId, lesson);
-  if (!meta.practice || track.customCommand || !["typescript", "javascript"].includes(track.runner)) throw new HttpError(422, "This lesson keeps ordinary checks; editable-case execution is not supported.");
+  if (!meta.practice || track.customCommand || !["typescript", "javascript", "python"].includes(track.runner)) throw new HttpError(422, "This lesson keeps ordinary checks; editable-case execution is not supported.");
   return { track, practice: meta.practice };
 }
 
@@ -17,7 +17,7 @@ export async function practiceAvailability(user: string, trackId: string, lesson
   try {
     const { track } = await context(user, trackId, lesson);
     const enabled = supportsPractice((await exec.status()).practice, track.runner);
-    return { enabled, reason: enabled ? "" : "This runner needs practice support, Node 24 and a working sandbox. Ordinary checks remain available." };
+    return { enabled, reason: enabled ? "" : "This runner needs matching practice support, its language toolchain and a working sandbox. Ordinary checks remain available." };
   } catch (e) {
     if ((e as HttpError).status !== 422) throw e;
     return { enabled: false, reason: (e as Error).message };
