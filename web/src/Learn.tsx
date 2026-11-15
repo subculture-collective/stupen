@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { api, type Checks, type Help, type Job, type LessonFile, type LessonMeta, type LessonSummary, load, type Me, save, type TrackState } from "./api.ts";
 import { go, href } from "./App.tsx";
@@ -7,6 +7,18 @@ import { Editor } from "./Editor.tsx";
 import { summarize } from "./checks.ts";
 import { Md } from "./Md.tsx";
 import { ConfirmButton, LockIcon, RUN_KEY, StatusIcon, useMedia } from "./ui.tsx";
+import { ResizeHandle } from "./ResizeHandle.tsx";
+import { LanguageService, typedFile, type CodeProblem } from "./languageService.ts";
+import { checkProblems, location as problemLocation } from "./problems.ts";
+
+function usePanelSize(key: string, initial: number, min: number, max: number) {
+  const [size, setSize] = useState(() => {
+    const stored = load<number>(key, initial);
+    return Number.isFinite(stored) ? Math.max(min, Math.min(max, stored)) : initial;
+  });
+  useEffect(() => save(key, size), [key, size]);
+  return [size, setSize] as const;
+}
 
 type Pane = "lessons" | "work" | "coach";
 
@@ -17,6 +29,12 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   const [lesson, setLesson] = useState<{ meta: LessonMeta; files: LessonFile[]; help: Help }>();
   const [error, setError] = useState<string>();
   const workbench = useRef<WorkbenchHandle>(null);
+  const [lessonWidth, setLessonWidth] = usePanelSize("study-coach:lesson-width", 260, 160, 420);
+  const [coachWidth, setCoachWidth] = usePanelSize("study-coach:coach-width", 400, 260, 600);
+  const [lessonsClosed, setLessonsClosed] = useState(() => load("study-coach:lessons-closed", false));
+  const [coachClosed, setCoachClosed] = useState(() => load("study-coach:coach-closed", false));
+  useEffect(() => save("study-coach:lessons-closed", lessonsClosed), [lessonsClosed]);
+  useEffect(() => save("study-coach:coach-closed", coachClosed), [coachClosed]);
 
   // Open the most recent unfinished lesson when none is chosen.
   useEffect(() => {
@@ -45,7 +63,7 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   const show = (p: Pane) => !narrow || pane === p;
 
   return (
-    <div className={`learn ${narrow ? "narrow" : ""}`}>
+    <div className={`learn ${narrow ? "narrow" : ""}`} style={narrow ? undefined : { gridTemplateColumns: `${lessonsClosed ? "36px 0" : `minmax(160px, min(${lessonWidth}px, 27%)) 6px`} minmax(0, 1fr) ${coachClosed ? "0 36px" : `6px minmax(260px, min(${coachWidth}px, 42%))`}` }}>
       {narrow && (
         <div className="pane-switch" role="tablist" aria-label="Show">
           {(["lessons", "work", "coach"] as const).map((p) => (
@@ -55,7 +73,13 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
           ))}
         </div>
       )}
-      {show("lessons") && <LessonNav state={state} current={props.lessonId} onJob={props.onJob} refresh={props.refresh} />}
+      {show("lessons") && <div className="side-panel">
+        {!narrow && lessonsClosed && <button className="panel-rail" type="button" aria-label="Expand lessons panel" aria-expanded={false} onClick={() => setLessonsClosed(false)}>Lessons ›</button>}
+        <div className="panel-content" hidden={!narrow && lessonsClosed}>
+          <LessonNav state={state} current={props.lessonId} onJob={props.onJob} refresh={props.refresh} {...(!narrow ? { onCollapse: () => setLessonsClosed(true) } : {})} />
+        </div>
+      </div>}
+      {!narrow && (lessonsClosed ? <div /> : <ResizeHandle label="Resize lessons panel" value={lessonWidth} min={160} max={420} onChange={setLessonWidth} />)}
       {show("work") && (
         <div className="work">
           {error && <p className="error">{error}</p>}
@@ -83,27 +107,32 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
           )}
         </div>
       )}
-      {show("coach") && (
+      {!narrow && (coachClosed ? <div /> : <ResizeHandle label="Resize coach panel" value={coachWidth} min={260} max={600} reverse onChange={setCoachWidth} />)}
+      {show("coach") && <div className="side-panel">
+        {!narrow && coachClosed && <button className="panel-rail" type="button" aria-label="Expand coach panel" aria-expanded={false} onClick={() => setCoachClosed(false)}>‹ Coach</button>}
+        <div className="panel-content" hidden={!narrow && coachClosed}>
         <Coach
           track={state.track}
           lesson={lesson?.meta}
           materials={state.materials}
           vars={() => workbench.current?.vars() ?? {}}
           beforeSend={() => workbench.current?.saveAll() ?? Promise.resolve()}
+          {...(!narrow ? { onCollapse: () => setCoachClosed(true) } : {})}
           onHelp={(help) => setLesson((l) => (l ? { ...l, help } : l))}
           onVerdict={() => {
             void loadLesson();
             void props.refresh();
           }}
         />
-      )}
+        </div>
+      </div>}
     </div>
   );
 }
 
 // ---------- lesson list ----------
 
-function LessonNav(props: { state: TrackState; current: string | undefined; onJob: (j: Job) => void; refresh: () => Promise<void> }) {
+function LessonNav(props: { state: TrackState; current: string | undefined; onJob: (j: Job) => void; refresh: () => Promise<void>; onCollapse?: () => void }) {
   const { state } = props;
   const [topic, setTopic] = useState("");
   const [error, setError] = useState<string>();
@@ -125,6 +154,7 @@ function LessonNav(props: { state: TrackState; current: string | undefined; onJo
   return (
     <nav className="lesson-nav" aria-label="Lessons">
       <div className="nav-head">
+        {props.onCollapse && <button type="button" className="panel-fold" aria-label="Collapse lessons panel" aria-expanded={true} onClick={props.onCollapse}>‹</button>}
         <h2>{state.track.title}</h2>
         <p className="small muted">
           {state.outline.lessons.length ? `${passed} of ${state.outline.lessons.length} plan lessons done` : "No plan yet"}
@@ -295,6 +325,15 @@ const Workbench = forwardRef<
   const [hints, setHints] = useState(0);
   const [solution, setSolution] = useState<{ path: string; content: string }[]>();
   const [outputOpen, setOutputOpen] = useState(Boolean(meta.lastChecks && !meta.lastChecks.passed));
+  const [resultTab, setResultTab] = useState<"problems" | "output">("problems");
+  const [resultHeight, setResultHeight] = usePanelSize("study-coach:results-height", 210, 90, 500);
+  const [gotoLine, setGotoLine] = useState<{ line: number; column: number; at: number }>();
+  const [checksStale, setChecksStale] = useState(false);
+  const [typedProblems, setTypedProblems] = useState<CodeProblem[]>([]);
+  const [localProblems, setLocalProblems] = useState<Record<string, CodeProblem[]>>({});
+  const [assistanceError, setAssistanceError] = useState<string>();
+  const [service] = useState(() => new LanguageService());
+  const sync = useRef<{ signature: string; promise: Promise<CodeProblem[]> } | undefined>(undefined);
   const [preview, setPreview] = useState<{ html?: string; output?: string; building: boolean; stale: boolean }>({ building: false, stale: true });
   const [adding, setAdding] = useState<string>();
   const [extraFiles, setExtraFiles] = useState<LessonFile[]>([]);
@@ -303,6 +342,35 @@ const Workbench = forwardRef<
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const contentsRef = useRef(contents);
   contentsRef.current = contents;
+  const sourceFiles = useMemo(() => Object.entries(contents).filter(([, f]) => f.loaded).map(([path, f]) => ({ path, content: f.content })), [contents]);
+  const prepareLanguage = useCallback((path?: string, content?: string) => {
+    const sources = Object.entries(contentsRef.current).filter(([p, f]) => f.loaded && typedFile(p)).map(([p, f]) => ({ path: p, content: path === p && content !== undefined ? content : f.content }));
+    const signature = JSON.stringify(sources);
+    if (sync.current?.signature === signature) return sync.current.promise;
+    const promise = service.sync(sources);
+    sync.current = { signature, promise };
+    void promise.then((problems) => {
+      if (sync.current?.signature === signature) { setTypedProblems(problems); setAssistanceError(undefined); }
+    }, (error: Error) => {
+      if (sync.current?.signature === signature) { setTypedProblems([]); setAssistanceError(error.message); sync.current = undefined; }
+    });
+    return promise;
+  }, [service]);
+  useEffect(() => () => service.dispose(), [service]);
+  useEffect(() => {
+    if (!sourceFiles.some((f) => typedFile(f.path))) return;
+    const timer = setTimeout(() => { void prepareLanguage().catch(() => {}); }, 400);
+    return () => clearTimeout(timer);
+  }, [sourceFiles, prepareLanguage]);
+  const reportDiagnostics = useCallback((path: string, problems: CodeProblem[]) => {
+    setLocalProblems((old) => JSON.stringify(old[path]) === JSON.stringify(problems) ? old : { ...old, [path]: problems });
+  }, []);
+  const problems = useMemo(() => [
+    ...typedProblems,
+    ...Object.entries(localProblems).filter(([path]) => sourceFiles.some((f) => f.path === path)).flatMap(([, list]) => list),
+    ...checkProblems(checksStale ? undefined : checks, sourceFiles),
+  ], [typedProblems, localProblems, checks, checksStale, sourceFiles]);
+  const editorProblems = useMemo(() => problems.filter((p) => p.path === tab && p.source !== "Syntax" && !p.source.startsWith("json")), [problems, tab]);
 
   // Load every file once; tests are small, and the coach needs them all.
   useEffect(() => {
@@ -355,6 +423,10 @@ const Workbench = forwardRef<
   }));
 
   const edit = (path: string, value: string) => {
+    sync.current = undefined;
+    setChecksStale(true);
+    setTypedProblems([]);
+    setLocalProblems((old) => { const next = { ...old }; delete next[path]; return next; });
     setPreview((p) => ({ ...p, stale: true }));
     setContents((c) => ({ ...c, [path]: { ...c[path]!, content: value } }));
     setSaving("idle");
@@ -374,10 +446,13 @@ const Workbench = forwardRef<
     setRunning(true);
     try {
       await saveAll();
+      const checkedContent = JSON.stringify(Object.entries(contentsRef.current).map(([path, f]) => [path, f.content]));
       const r = await api.check(track, meta.id);
       setChecks(r.checks);
+      setChecksStale(checkedContent !== JSON.stringify(Object.entries(contentsRef.current).map(([path, f]) => [path, f.content])));
       props.onMeta(r.meta);
       setOutputOpen(!r.checks.passed);
+      if (!r.checks.passed) setResultTab("problems");
       const vars = { failing: failingText(r.checks), file: tab === "brief" ? "" : tab };
       if (r.checks.passed) {
         if (r.firstPass) fireTrigger("check-pass", vars);
@@ -412,6 +487,7 @@ const Workbench = forwardRef<
   };
 
   const selectTab = (t: string) => {
+    setGotoLine(undefined);
     setTab(t);
     if (t !== "brief" && t !== "preview") save(`study-coach:tab:${track}:${meta.id}`, t);
     if (t === "preview" && preview.stale && !preview.building) void buildPreview();
@@ -421,6 +497,7 @@ const Workbench = forwardRef<
     setError(undefined);
     try {
       await api.newFile(track, meta.id, path);
+      setChecksStale(true);
       setExtraFiles((x) => [...x, { path, editable: true, role: "starter", added: true }]);
       setContents((c) => ({ ...c, [path]: { content: "", saved: "", loaded: true } }));
       setAdding(undefined);
@@ -433,6 +510,7 @@ const Workbench = forwardRef<
   const removeFile = async (path: string) => {
     try {
       await api.deleteFile(track, meta.id, path);
+      setChecksStale(true);
       setExtraFiles((x) => x.filter((f) => f.path !== path));
       setContents((c) => {
         const { [path]: _gone, ...rest } = c;
@@ -451,9 +529,16 @@ const Workbench = forwardRef<
   const dirty = allFiles.some((f) => contents[f.path] && contents[f.path]!.content !== contents[f.path]!.saved);
   const current = tab === "brief" || tab === "preview" ? undefined : allFiles.find((f) => f.path === tab);
   const summary = checks ? summarize(checks) : undefined;
+  const jumpToProblem = (problem: CodeProblem) => {
+    const file = sourceFiles.find((f) => f.path === problem.path);
+    if (!file) { setResultTab("output"); return; }
+    selectTab(file.path);
+    setGotoLine({ ...problemLocation(file.content, problem.from), at: Date.now() });
+  };
 
   return (
     <article className="workbench" aria-label={meta.title}>
+      <p id="editor-help" className="sr-only">Ctrl or Command D selects the next matching word for editing with multiple cursors. Alt-drag selects a rectangle. Control Space opens autocomplete. Hover over a symbol for documentation.</p>
       <header className="lesson-head">
         <div>
           <h1>{meta.title}</h1>
@@ -583,6 +668,12 @@ const Workbench = forwardRef<
             value={contents[current.path]!.content}
             readOnly={!current.editable}
             label={`${current.path}${current.editable ? "" : " (read-only)"}`}
+            files={sourceFiles}
+            service={service}
+            ready={prepareLanguage}
+            problems={editorProblems}
+            onDiagnostics={reportDiagnostics}
+            gotoLine={gotoLine}
             onChange={(v) => edit(current.path, v)}
             onSave={() => void saveFile(current.path).catch(() => {})}
             onRun={() => void run()}
@@ -602,8 +693,9 @@ const Workbench = forwardRef<
           {saving === "saving" ? "Saving…" : saving === "error" ? "Not saved" : dirty ? "Unsaved changes" : saving === "saved" ? "Saved" : ""}
         </span>
         {summary && (
-          <button type="button" className={`check-summary ${checks!.passed ? "ok" : "bad"}`} aria-expanded={outputOpen} onClick={() => setOutputOpen(!outputOpen)}>
+          <button type="button" className={`check-summary ${checks!.passed ? "ok" : "bad"}`} aria-expanded={outputOpen} onClick={() => { setResultTab("output"); setOutputOpen(!outputOpen || resultTab !== "output"); }}>
             <StatusIcon status={checks!.passed ? "passed" : "failed"} /> {summary}
+            {checksStale && <span className="muted">(before edits)</span>}
           </button>
         )}
         <span className="spacer" />
@@ -645,8 +737,30 @@ const Workbench = forwardRef<
         </p>
       )}
       {!props.runnerOk && !props.graded && <p className="notice small">Checks can't run on this server: {props.runnerDetail}.</p>}
-      {checks && outputOpen && (
-        <section className="output" aria-label="Check output">
+      <div className="results-toolbar" role="tablist" aria-label="Results">
+        <button type="button" role="tab" aria-selected={resultTab === "problems" && outputOpen} aria-controls="lesson-problems" onClick={() => { setResultTab("problems"); setOutputOpen(true); }}>Problems ({problems.length})</button>
+        <button type="button" role="tab" aria-selected={resultTab === "output" && outputOpen} aria-controls="lesson-output" onClick={() => { setResultTab("output"); setOutputOpen(true); }}>Check output</button>
+        <span className="spacer" />
+        <button type="button" className="panel-fold" aria-label={outputOpen ? "Collapse results panel" : "Expand results panel"} aria-expanded={outputOpen} onClick={() => setOutputOpen(!outputOpen)}>{outputOpen ? "⌄" : "⌃"}</button>
+      </div>
+      {outputOpen && <section className="results-panel" style={{ height: resultHeight }} aria-label="Results panel">
+        <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />
+        <div id="lesson-problems" role="tabpanel" aria-label="Problems" className="problems" hidden={resultTab !== "problems"}>
+          {assistanceError && <p className="notice small" role="status">{assistanceError}</p>}
+          {!problems.length && <p className="small muted">No problems reported. Run checks for compiler and test results.</p>}
+          {problems.map((p, i) => {
+            const file = sourceFiles.find((f) => f.path === p.path);
+            const at = file ? problemLocation(file.content, p.from) : undefined;
+            return <button type="button" className={`problem ${p.severity}`} key={`${p.path}:${p.from}:${i}`} onClick={() => jumpToProblem(p)}>
+              <span className="problem-location">{p.path || "Checks"}{at ? `:${at.line}:${at.column}` : ""}</span>
+              <span>{p.message}</span><span className="small muted">{p.source}</span>
+            </button>;
+          })}
+        </div>
+        <section id="lesson-output" role="tabpanel" className="output" aria-label="Check output" hidden={resultTab !== "output"}>
+          {!checks && <p className="small muted">Run checks to see their output.</p>}
+          {checksStale && checks && <p className="small muted">These results are from before your latest edits.</p>}
+          {checks && <>
           {!checks.sandboxed && <p className="notice small">These checks ran without the sandbox.</p>}
           {checks.results.map((r, i) => (
             <div key={i} className={`result ${r.exitCode === 0 ? "ok" : "bad"}`}>
@@ -656,8 +770,9 @@ const Workbench = forwardRef<
               {r.output.trim() && <pre>{r.output.trim()}</pre>}
             </div>
           ))}
+          </>}
         </section>
-      )}
+      </section>}
     </article>
   );
 });

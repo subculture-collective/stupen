@@ -28,6 +28,42 @@ It is not released. SUBCULT runs it on its homelab for invited learners; the sit
 - **Limits and admin.** In accounts mode each non-admin account has rate limits on checks, previews, generation jobs, materials, coach messages, new tracks and key checks (`server/limits.ts`), 300 MB of storage and 40 tracks. Admins get an Admin page to disable or delete accounts. Everyone can download their data as a `.tar.gz` and delete their account from the Account page.
 - **Accounts.** With `AUTH_MODE=accounts`, people sign in with an emailed link, GitHub or a passkey, and each account gets its own tracks, prompts and coach log. Sessions are 30-day cookies that renew with use; the Account page lists passkeys and signed-in devices. Without it, a sign-in proxy such as Authelia names the user in the `Remote-User` header.
 
+## Editor
+
+The lesson editor supports multiple cursors (Ctrl/Cmd+D selects the next occurrence;
+Alt-drag makes a rectangular selection), matching-word highlights, automatic bracket
+and quote closing, and autocomplete (Ctrl+Space). Hover over a symbol for documentation.
+
+- **TypeScript/JavaScript:** completion, inferred types, hover documentation and live
+  diagnostics across the lesson's files, using a browser worker. Standard JavaScript
+  and Node APIs are included; installed dependency types are checked by Run checks.
+- **Go:** local-name completion, builtins, and completion/documentation for 24 common
+  standard-library packages, including aliased imports. Go compiler and type errors
+  appear after Run checks.
+- **Python:** local-name and builtin completion, builtin documentation and docstrings
+  from functions in the current file. Runtime and type errors appear after Run checks.
+- Other languages keep their CodeMirror language completions where available and
+  names from the current file. Parser diagnostics appear while editing where supported.
+
+The Problems panel lists live diagnostics and errors extracted from check output.
+Select a problem to open its file at the reported line and column. Editing invalidates
+the old check diagnostics; the original check output remains available and is labelled
+as predating the edits.
+
+On desktop, the lesson list and coach can collapse and resize. The Problems/Check
+output panel can collapse and resize vertically. Splitters support dragging, arrow
+keys, Shift+arrows, Home and End. Panel sizes and side-panel collapse states persist
+in this browser. Narrow screens use the existing Lessons/Lesson/Coach tabs.
+
+Bundled Go and Python documentation comes from their toolchains, with notices under
+`web/public/licenses/`. Refresh it with `node scripts/editor-docs.ts` using Go and
+Python on PATH. Editor assistance reads the visible lesson files; it neither executes
+the learner's code nor accesses the hidden reference solution.
+
+Run `node scripts/verify-editor.ts` against a local Vite server on port 5198 for the
+browser interaction checks. Set `BASE` and `CHROMIUM` to use another URL or Chromium
+executable. The check intercepts API calls with disposable fixtures.
+
 ## Containers
 
 Each check copies the lesson into `/work` in a fresh container. `/cache` keeps the lesson's installed packages between runs.

@@ -1,4 +1,7 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { highlightSelectionMatches, selectNextOccurrence } from "@codemirror/search";
+import { linter, setDiagnostics } from "@codemirror/lint";
 import { cpp } from "@codemirror/lang-cpp";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
@@ -10,18 +13,22 @@ import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
 import { sql } from "@codemirror/lang-sql";
+import { json, jsonParseLinter } from "@codemirror/lang-json";
 import { bracketMatching, HighlightStyle, indentOnInput, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { csharp, kotlin } from "@codemirror/legacy-modes/mode/clike";
 import { ruby } from "@codemirror/legacy-modes/mode/ruby";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
-import { EditorState, RangeSetBuilder } from "@codemirror/state";
-import { Decoration, type DecorationSet, drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { Compartment, EditorState, RangeSetBuilder } from "@codemirror/state";
+import { crosshairCursor, Decoration, type DecorationSet, drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers, rectangularSelection, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
+import { documentedCompletion, documentationHover, pythonCompletion, syntaxDiagnostics, wordCompletion } from "./editorAssistance.ts";
+import { typedFile, type CodeProblem, type LanguageService, type SourceFile } from "./languageService.ts";
 
 function language(path: string) {
   const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
+  if (ext === "json") return json();
   if (ext === "go") return go();
   if (ext === "py") return python();
   if (ext === "rs") return rust();
@@ -58,6 +65,7 @@ const highlight = HighlightStyle.define([
 
 /** Editor state per area and file for this page session: undo history, selection and scroll survive switching files. */
 const cache = new Map<string, { state: EditorState; scroll: number }>();
+const assistance = new Compartment();
 
 type Handlers = { onChange: (v: string) => void; onSave: () => void; onRun: () => void; onSelect?: ((text: string) => void) | undefined };
 
@@ -113,6 +121,11 @@ function createState(key: string, doc: string, path: string, readOnly: boolean, 
       lineNumbers(),
       history(),
       drawSelection(),
+      EditorState.allowMultipleSelections.of(true),
+      rectangularSelection(),
+      crosshairCursor(),
+      highlightSelectionMatches({ highlightWordAroundCursor: true, wholeWords: true }),
+      assistance.of([]),
       indentOnInput(),
       bracketMatching(),
       highlightActiveLine(),
@@ -133,6 +146,7 @@ function createState(key: string, doc: string, path: string, readOnly: boolean, 
       keymap.of([
         { key: "Mod-s", preventDefault: true, run: () => (call(key, "onSave"), true) },
         { key: "Mod-Enter", preventDefault: true, run: () => (call(key, "onRun"), true) },
+        { key: "Mod-d", preventDefault: true, run: selectNextOccurrence },
         indentWithTab,
         ...defaultKeymap,
         ...historyKeymap,
@@ -149,8 +163,7 @@ function createState(key: string, doc: string, path: string, readOnly: boolean, 
 }
 
 /**
- * A plain editor for by-hand practice: syntax colouring and undo only.
- * No autocompletion, snippets, bracket closing or spellcheck.
+ * The lesson editor. Assistance reads the learner's files, never the hidden solution.
  */
 export function Editor(props: {
   cacheKey: string;
@@ -159,7 +172,12 @@ export function Editor(props: {
   readOnly: boolean;
   label: string;
   /** Move the cursor to this 1-based line when it changes. */
-  gotoLine?: { line: number; at: number } | undefined;
+  gotoLine?: { line: number; column?: number; at: number } | undefined;
+  files: SourceFile[];
+  service: LanguageService;
+  ready: (path?: string, content?: string) => Promise<unknown>;
+  problems: CodeProblem[];
+  onDiagnostics: (path: string, problems: CodeProblem[]) => void;
   onChange: (value: string) => void;
   onSave: () => void;
   onRun: () => void;
@@ -170,6 +188,8 @@ export function Editor(props: {
   const view = useRef<EditorView | null>(null);
   const shown = useRef<string | null>(null);
   const jumped = useRef(false);
+  const current = useRef(props);
+  current.current = props;
   handlerFor.set(props.cacheKey, { onChange: props.onChange, onSave: props.onSave, onRun: props.onRun, onSelect: props.onSelect });
 
   // One view for the component's lifetime; its state is swapped per file.
@@ -200,6 +220,45 @@ export function Editor(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.cacheKey]);
 
+  useEffect(() => {
+    const v = view.current;
+    if (!v) return;
+    const path = props.path;
+    v.dispatch({ effects: assistance.reconfigure([
+      ...(!props.readOnly ? [closeBrackets(), keymap.of([...closeBracketsKeymap, ...completionKeymap]), autocompletion({
+        // Keep language completions, and add names already used in this file.
+        ...(typedFile(path) ? { override: [async (context) => {
+          context.addEventListener("abort", () => {}, { onDocChange: true });
+          const word = context.matchBefore(/[\w$]*/);
+          if (!context.explicit && !word?.text && context.state.sliceDoc(context.pos - 1, context.pos) !== ".") return null;
+          const doc = context.state.doc;
+          try {
+            await current.current.ready(path, doc.toString());
+            const options = await current.current.service.complete(path, context.pos);
+            if (context.aborted) return null;
+            const from = options[0]?.from ?? word?.from ?? context.pos;
+            return { from, to: options[0]?.to ?? context.pos, options: options.map((o) => ({ ...o, apply: o.insert ?? o.label })), validFor: /^[\w$]*$/ };
+          } catch { return wordCompletion(context); }
+        }] } : {}),
+      })] : []),
+      documentationHover(path, () => current.current.files, props.service, () => current.current.ready()),
+      linter((view) => {
+        const local = typedFile(path) ? [] : path.endsWith(".json") ? jsonParseLinter()(view) : syntaxDiagnostics(view);
+        current.current.onDiagnostics(path, local.map((p) => ({ path, from: p.from, to: p.to, severity: p.severity === "warning" ? "warning" : "error", message: p.message, source: p.source ?? "Syntax" })));
+        return [...local, ...current.current.problems];
+      }, { delay: 500 }),
+      ...(!typedFile(path) ? [EditorState.languageData.of(() => [{ autocomplete: wordCompletion }, ...(path.endsWith(".go") ? [{ autocomplete: documentedCompletion }] : path.endsWith(".py") ? [{ autocomplete: pythonCompletion }] : [])])] : []),
+    ]) });
+  }, [props.cacheKey, props.service]);
+
+  useEffect(() => {
+    const v = view.current;
+    if (!v) return;
+    const local = typedFile(props.path) ? [] : props.path.endsWith(".json") ? jsonParseLinter()(v) : syntaxDiagnostics(v);
+    const problems = props.problems.map((p) => ({ ...p, from: Math.min(p.from, v.state.doc.length), to: Math.min(p.to, v.state.doc.length) }));
+    v.dispatch(setDiagnostics(v.state, [...local, ...problems]));
+  }, [props.problems, props.cacheKey]);
+
   // Follow changes made outside the editor: a fresh load from disk or a discarded draft.
   useEffect(() => {
     const v = view.current;
@@ -214,7 +273,8 @@ export function Editor(props: {
     if (!v || !g || shown.current !== props.cacheKey) return;
     jumped.current = true;
     const line = v.state.doc.line(Math.min(Math.max(1, g.line), v.state.doc.lines));
-    v.dispatch({ selection: { anchor: line.from }, effects: EditorView.scrollIntoView(line.from, { y: "center" }) });
+    const pos = Math.min(line.to, line.from + Math.max(0, (g.column ?? 1) - 1));
+    v.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
     v.focus();
   }, [props.gotoLine, props.cacheKey]);
 
