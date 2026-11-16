@@ -779,6 +779,7 @@ try {
   await replace("export function double(n: number) { return n * 3; }");
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await input.fill("{");
+  await page.locator('button[aria-label="Run"]:disabled').waitFor();
   assert.equal(await runButton().isDisabled(), true);
   await input.fill("6");
   failSavePath = "helpers.ts";
