@@ -59,7 +59,7 @@ asset manifests, smoke results, limits and validated recovery commands in the
 private release receipt and canonical Machinum Kvant/Stupen notes. A pushed
 release or UI fixture alone does not close the live rollout issue.
 
-## November 15, 2026 activation
+## November 16, 2026 UTC activation
 
 App and runner were activated at merged revision
 `8d3631cdc25252aad9989cc5a2ec95665d86d04a` after #40 and #41 passed hosted CI.
