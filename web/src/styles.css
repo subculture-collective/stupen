@@ -1943,10 +1943,12 @@ textarea.mono {
 .keyboard-help summary::after { content: "?"; font: 600 13px var(--sans); color: var(--muted); }
 .lesson-badges:empty { display: none; }
 .lesson-badges { padding: 3px 10px; }
-.floating-pane { position: fixed; z-index: 12; top: 145px; width: min(440px, calc(100vw - 32px)); height: min(650px, calc(100dvh - 165px)); min-width: 280px; min-height: 180px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); resize: both; border: 1px solid var(--muted); background: var(--panel); box-shadow: 0 10px 30px rgb(0 0 0 / 22%); overflow: hidden; }
+.workbench-panes, .overlay-host { position: relative; }
+.side-panel.overlay-host { overflow: visible; }
+.floating-pane { position: absolute; z-index: 12; top: 0; bottom: 0; min-height: 0; border: 1px solid var(--muted); background: var(--panel); box-shadow: 0 8px 24px rgb(0 0 0 / 22%); overflow: hidden; }
+.floating-problem { left: 36px; }
+.floating-coach { right: 100%; }
 .floating-pane:focus-within { z-index: 13; }
-.floating-pane > .panel-content { height: 100%; }
-.move-pane { cursor: move; touch-action: none; }
 .appearance-menu { position: relative; }
 .appearance-menu > summary { list-style: none; cursor: pointer; display: grid; place-items: center; padding: 6px; width: 32px; height: 32px; border: 1px solid var(--line); }
 .appearance-menu > summary::-webkit-details-marker { display: none; }

@@ -85,9 +85,11 @@ locally. The command picker opens from the top bar or Ctrl/Cmd+K; search for a
 layout, pane action, Run, Submit or lesson title, then use arrows and Enter.
 
 Problem and Coach each have compact controls for collapse and floating/inset
-placement. Floating panes can be dragged by their move icon, moved with arrow
-keys while that icon is focused, or resized from their lower corner. Narrow
-screens use the existing pane tabs. Collapse and placement choices persist in
+placement. Floating panes open over the workspace when their rail is hovered
+and close after the pointer leaves both rail and pane. Keyboard focus and active
+text entry keep them open; Escape or an outside click dismisses them. Clicking
+the rail also opens the pane for touch users. Inset panes stay open and reserve
+workspace space. Narrow screens use the existing pane tabs. Collapse and placement choices persist in
 this browser; Reset layout restores inset Problem and folded Coach.
 
 Problem List closes on Escape, lesson selection or an outside click. Code's

@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { CommandPicker, closeOutside, type WorkspaceCommand } from "./CommandPicker.tsx";
-import { PaneIcon, useFloatingPane } from "./PaneTools.tsx";
+import { PaneIcon } from "./PaneTools.tsx";
+import { useHoverPane } from "./useHoverPane.ts";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { api, type Checks, type Help, type Job, type LessonFile, type LessonMeta, type LessonSummary, load, type Me, save, type TrackState } from "./api.ts";
@@ -37,7 +38,8 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   const [readingClosed, setReadingClosed] = useState(() => load("study-coach:reading-closed", false));
   const [readingFloating, setReadingFloating] = useState(() => load("study-coach:reading-floating", false));
   const [coachFloating, setCoachFloating] = useState(() => load("study-coach:coach-floating", false));
-  const coachFloat = useFloatingPane("right", "Coach");
+  const readingPeek = useHoverPane(!narrow && readingFloating && layout === "split");
+  const coachPeek = useHoverPane(!narrow && coachFloating && layout === "split");
   useEffect(() => { save("study-coach:reading-closed", readingClosed); save("study-coach:reading-floating", readingFloating); save("study-coach:coach-floating", coachFloating); }, [readingClosed, readingFloating, coachFloating]);
   const layoutSelect = useRef<HTMLSelectElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -89,17 +91,20 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   }, [loadLesson]);
 
   const runner = props.me.runners.find((r) => r.id === state.track.runner);
-  const openCoach = () => { setLayout("split"); setCoachClosed(false); setPane("coach"); };
+  const openCoach = () => { setLayout("split"); setCoachClosed(false); setPane("coach"); coachPeek.show(); };
+  const placeReading = (floating: boolean) => { setReadingFloating(floating); setReadingClosed(false); if (floating) readingPeek.show(); };
+  const placeCoach = (floating: boolean) => { setCoachFloating(floating); setCoachClosed(false); if (floating) coachPeek.show(); };
+  const coachOpen = coachFloating && !narrow ? coachPeek.open : !coachClosed;
 
   const resetLayout = () => { setLayout("split"); setCoachWidth(400); setCoachClosed(true); setReadingClosed(false); setReadingFloating(false); setCoachFloating(false); setPane("code"); workbench.current?.resetLayout(); };
   const commands: WorkspaceCommand[] = [
     { id: "list", label: "Open problem list", run: () => problemList.current?.showModal() },
     ...(["split", "reading", "code", "results"] as const).map((id) => ({ id, label: id === "split" ? "Split layout" : `Focus ${id === "reading" ? "problem" : id}`, run: () => { changeLayout(id); setPane(id === "reading" ? "reading" : "code"); } })),
     { id: "reset", label: "Reset layout", run: resetLayout },
-    { id: "coach", label: coachClosed ? "Expand Coach" : "Collapse Coach", run: () => coachClosed ? openCoach() : setCoachClosed(true) },
-    { id: "problem", label: readingClosed ? "Expand Problem" : "Collapse Problem", run: () => { setLayout("split"); setReadingClosed(!readingClosed); setPane("reading"); } },
-    { id: "float-problem", label: readingFloating ? "Inset Problem pane" : "Float Problem pane", run: () => { setReadingFloating(!readingFloating); setReadingClosed(false); setLayout("split"); } },
-    { id: "float-coach", label: coachFloating ? "Inset Coach pane" : "Float Coach pane", run: () => { setCoachFloating(!coachFloating); openCoach(); } },
+    { id: "coach", label: coachOpen ? "Collapse Coach" : "Expand Coach", run: () => coachOpen ? (coachFloating ? coachPeek.dismiss() : setCoachClosed(true)) : openCoach() },
+    { id: "problem", label: (readingFloating ? !readingPeek.open : readingClosed) ? "Expand Problem" : "Collapse Problem", run: () => { setLayout("split"); if (readingFloating) readingPeek.open ? readingPeek.dismiss() : readingPeek.show(); else setReadingClosed(!readingClosed); setPane("reading"); } },
+    { id: "float-problem", label: readingFloating ? "Inset Problem pane" : "Float Problem pane", run: () => { placeReading(!readingFloating); setLayout("split"); } },
+    { id: "float-coach", label: coachFloating ? "Inset Coach pane" : "Float Coach pane", run: () => { placeCoach(!coachFloating); openCoach(); } },
     { id: "run", label: "Run code", detail: "Ungraded practice", run: () => workbench.current?.practice(), disabled: !lesson || runner?.graded === "coach" },
     { id: "submit", label: "Submit solution", run: () => workbench.current?.submit(), disabled: !lesson },
     ...state.lessons.map((l) => ({ id: `lesson-${l.id}`, label: l.title, detail: "Open lesson", run: () => go({ page: "track", track: state.track.id, view: "learn", lesson: l.id }) })),
@@ -162,7 +167,7 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
             pane={pane}
             layout={layout}
             readingClosed={readingClosed} setReadingClosed={setReadingClosed}
-            readingFloating={readingFloating} setReadingFloating={setReadingFloating}
+            readingFloating={readingFloating} setReadingFloating={placeReading} readingPeek={readingPeek}
             changeLayout={changeLayout}
             showCode={() => { setLayout("split"); setPane("code"); }}
             askCoach={openCoach}
@@ -170,11 +175,11 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
         )}
       </div>
       {!narrow && (coachClosed || coachFloating || layout !== "split" ? <div /> : <ResizeHandle label="Resize coach panel" value={coachWidth} min={260} max={600} reverse onChange={setCoachWidth} />)}
-      <div id="workspace-coach" className={`side-panel ${!narrow && coachFloating && !coachClosed && layout === "split" ? "floating-pane floating-coach" : ""}`} style={!narrow && coachFloating && !coachClosed && layout === "split" ? coachFloat.style : undefined} hidden={narrow && (layout !== "split" || pane !== "coach")}>
-        {!narrow && (coachClosed || layout !== "split") && <button className="panel-rail" type="button" aria-label="Expand coach panel" aria-expanded={false} onClick={openCoach}><PaneIcon name="collapse" /> Coach</button>}
-        <div className="panel-content" hidden={!narrow && (coachClosed || layout !== "split")}>
+      <div id="workspace-coach" className={`side-panel ${!narrow && coachFloating && layout === "split" ? "overlay-host" : ""}`} hidden={narrow && (layout !== "split" || pane !== "coach")}>
+        {!narrow && (coachClosed || coachFloating || layout !== "split") && <button ref={coachPeek.trigger} {...coachPeek.events} className="panel-rail" type="button" aria-label="Expand coach panel" title={coachFloating ? "Hover to open Coach" : "Open Coach"} aria-controls="coach-content" aria-expanded={layout === "split" && coachOpen} onClick={openCoach}><PaneIcon name="collapse" /> Coach</button>}
+        <div id="coach-content" ref={coachPeek.panelRef} {...coachPeek.events} className={`panel-content ${!narrow && coachFloating && layout === "split" ? "floating-pane floating-coach" : ""}`} style={!narrow && coachFloating && layout === "split" ? { width: `min(${coachWidth}px, calc(100vw - 72px))` } : undefined} hidden={!narrow && (layout !== "split" || (coachFloating ? !coachPeek.open : coachClosed))}>
         <Coach
-          paneTools={!narrow ? <div className="coach-pane-tools">{coachFloating && coachFloat.handle}<button type="button" className="pane-icon" aria-label={coachFloating ? "Inset Coach pane" : "Float Coach pane"} title={coachFloating ? "Inset pane" : "Float pane"} onClick={() => setCoachFloating(!coachFloating)}><PaneIcon name={coachFloating ? "dock" : "float"} /></button><button type="button" className="pane-icon" aria-label="Collapse coach panel" title="Collapse Coach" onClick={() => setCoachClosed(true)}><PaneIcon name="collapse" /></button></div> : undefined}
+          paneTools={!narrow ? <div className="coach-pane-tools"><button type="button" className="pane-icon" aria-label={coachFloating ? "Inset Coach pane" : "Float Coach pane"} title={coachFloating ? "Pin Coach inside the workspace" : "Open Coach over the workspace on rail hover"} onClick={() => placeCoach(!coachFloating)}><PaneIcon name={coachFloating ? "dock" : "float"} /></button><button type="button" className="pane-icon" aria-label="Collapse coach panel" title="Collapse Coach" onClick={() => coachFloating ? coachPeek.dismiss() : setCoachClosed(true)}><PaneIcon name="collapse" /></button></div> : undefined}
           track={state.track}
           lesson={lesson?.meta}
           materials={state.materials}
@@ -378,12 +383,12 @@ const Workbench = forwardRef<
     layout: WorkspaceLayout;
     readingClosed: boolean; setReadingClosed: (closed: boolean) => void;
     readingFloating: boolean; setReadingFloating: (floating: boolean) => void;
+    readingPeek: ReturnType<typeof useHoverPane>;
     changeLayout: (layout: WorkspaceLayout) => void;
     showCode: () => void;
   }
 >(function Workbench(props, ref) {
   const { meta, files } = props.lesson;
-  const readingFloat = useFloatingPane("left", "Problem");
   const track = props.state.track.id;
   const firstEditable = files.find((f) => f.editable)?.path;
   const [tab, setTab] = useState<string>(() => {
@@ -665,13 +670,12 @@ const Workbench = forwardRef<
   return (
     <article className="workbench" aria-label={meta.title}>
       <div className={`workbench-panes layout-${props.layout}`} style={props.narrow ? undefined : { gridTemplateColumns: props.layout === "split" ? `${props.readingClosed || props.readingFloating ? "36px 0" : `minmax(220px, min(${descriptionWidth}px, 45%)) 6px`} minmax(0, 1fr)` : "minmax(0, 1fr)" }}>
-        {!props.narrow && props.layout === "split" && (props.readingClosed || props.readingFloating) && <button type="button" className="panel-rail problem-rail" aria-label="Expand problem panel" aria-expanded={false} onClick={() => { props.setReadingClosed(false); if (props.readingFloating && !props.readingClosed) props.setReadingFloating(false); }}><PaneIcon name="collapse" /> Problem</button>}
-        <section className={`reading-pane ${!props.narrow && props.readingFloating && props.layout === "split" ? "floating-pane floating-problem" : ""}`} style={!props.narrow && props.readingFloating && props.layout === "split" ? readingFloat.style : undefined} aria-label="Lesson reference" hidden={props.layout !== "reading" && (props.layout !== "split" || (props.narrow ? props.pane !== "reading" : props.readingClosed))}>
+        {!props.narrow && props.layout === "split" && (props.readingClosed || props.readingFloating) && <button ref={props.readingPeek.trigger} {...props.readingPeek.events} type="button" className="panel-rail problem-rail" title={props.readingFloating ? "Hover to open Problem" : "Open Problem"} aria-label="Expand problem panel" aria-controls="workspace-problem" aria-expanded={props.readingFloating && props.readingPeek.open} onClick={() => props.readingFloating ? props.readingPeek.show() : props.setReadingClosed(false)}><PaneIcon name="collapse" /> Problem</button>}
+        <section id="workspace-problem" ref={props.readingPeek.panelRef} {...props.readingPeek.events} className={`reading-pane ${!props.narrow && props.readingFloating && props.layout === "split" ? "floating-pane floating-problem" : ""}`} style={!props.narrow && props.readingFloating && props.layout === "split" ? { width: `min(${descriptionWidth}px, calc(100% - 36px))` } : undefined} aria-label="Lesson reference" hidden={props.layout !== "reading" && (props.layout !== "split" || (props.narrow ? props.pane !== "reading" : props.readingFloating ? !props.readingPeek.open : props.readingClosed))}>
           <div className="pane-controls"><span className="small muted">Problem</span><span className="spacer" />
-            {props.readingFloating && props.layout === "split" && !props.narrow && readingFloat.handle}
-            {!props.narrow && <button type="button" className="pane-icon" aria-label={props.readingFloating ? "Inset Problem pane" : "Float Problem pane"} title={props.readingFloating ? "Inset pane" : "Float pane"} onClick={() => props.setReadingFloating(!props.readingFloating)}><PaneIcon name={props.readingFloating ? "dock" : "float"} /></button>}
+            {!props.narrow && <button type="button" className="pane-icon" aria-label={props.readingFloating ? "Inset Problem pane" : "Float Problem pane"} title={props.readingFloating ? "Pin Problem inside the workspace" : "Open Problem over the workspace on rail hover"} onClick={() => props.setReadingFloating(!props.readingFloating)}><PaneIcon name={props.readingFloating ? "dock" : "float"} /></button>}
             <button type="button" className="pane-icon" title="Focus problem" aria-label={props.layout === "reading" ? "Restore split layout" : "Maximize reading pane"} onClick={() => props.changeLayout(props.layout === "reading" ? "split" : "reading")}><PaneIcon name={props.layout === "reading" ? "restore" : "expand"} /></button>
-            {!props.narrow && <button type="button" className="pane-icon" aria-label="Collapse problem panel" title="Collapse problem" onClick={() => { props.setReadingClosed(true); props.changeLayout("split"); }}><PaneIcon name="collapse" /></button>}
+            {!props.narrow && <button type="button" className="pane-icon" aria-label="Collapse problem panel" title="Collapse problem" onClick={() => { if (props.readingFloating) props.readingPeek.dismiss(); else props.setReadingClosed(true); props.changeLayout("split"); }}><PaneIcon name="collapse" /></button>}
           </div>
           <div className="lesson-badges">
             {!meta.verified && !props.graded && <span className="pill pill-warn" title="The generated tests could not be confirmed against a reference solution. If a test looks wrong, ask the coach.">tests unverified</span>}
