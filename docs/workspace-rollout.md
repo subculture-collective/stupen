@@ -58,3 +58,33 @@ Keep exact live revisions, previous symlink targets, runtime/config hashes,
 asset manifests, smoke results, limits and validated recovery commands in the
 private release receipt and canonical Machinum Kvant/Stupen notes. A pushed
 release or UI fixture alone does not close the live rollout issue.
+
+## November 15, 2026 activation
+
+App and runner were activated at merged revision
+`8d3631cdc25252aad9989cc5a2ec95665d86d04a` after #40 and #41 passed hosted CI.
+The production `/app` build has 19 files, all hash-matched through the public
+URL, including the language worker. Both services use their versioned
+`8d3631-workspace` releases. The runner was activated and checked before the app.
+
+Live public authenticated tests passed for custom practice and canonical pass/fail
+submissions in TypeScript, Python and Go. Practice left metadata/history unchanged;
+Submit persisted progress and personal results. The disposable account was removed.
+A real container preview and ChatGPT-backed written grading also passed. The owner
+retained subscription/provider access; the disposable account was excluded.
+The full UI fixture suite passed against the public build in both themes and at
+all three required viewport sizes. Anonymous API access stayed 401; direct socket
+access without the edge secret stayed 403.
+
+The existing backup job completed successfully before activation. Runtime inputs
+and the original 18 learner files were checked against the before manifest; only
+the authorized written-smoke event was appended to the owner's coach log, with
+its prior bytes retained. QEMU and egress PIDs stayed unchanged. Previous releases
+`0e6caab-editor` (app) and `f2fdc16` (runner) remain available. Recovery commands
+were syntax/path checked; an actual production rollback was not performed.
+Fresh email/GitHub/passkey credential exchange was not exercised.
+
+Private receipt on Kvant: `~/.local/state/stupen-workspace-20261115/`, including
+before/deployment manifests, public asset hashes, account/provider/browser smoke
+logs and `rollback.sh`. The smoke tooling ran from its staged operations release;
+it was separate from the deployed app/runner runtime revision above.
