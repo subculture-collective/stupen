@@ -68,7 +68,9 @@ confirmation; revisiting its tab or reloading never fetches protected files by i
 Small focus/restore icons expand Problem, Code or results. The top-bar Workspace
 settings menu offers the same layouts, palettes, reading fonts and light/dark modes.
 Ctrl/Cmd+K opens a searchable command and lesson picker. Problem and Coach can
-collapse or float above the editor; floating panes can move and resize. Restore keeps
+collapse or open over the editor on rail hover. Inset panes reserve workspace
+space; floating panes close when you leave them. Keyboard focus or text entry
+keeps a floating pane open, and its rail also opens on click. Restore keeps
 split sizes, folded state,
 active tabs and editor state; focus mode itself is temporary. Reset layout restores
 default sizes and folded Coach/results without clearing code or tabs. Stored sizes
