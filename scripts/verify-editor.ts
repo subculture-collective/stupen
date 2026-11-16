@@ -556,11 +556,28 @@ try {
   await page.getByRole("tab", { name: /^Problems/ }).click();
   await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
   assert.equal(await page.getByRole("button", { name: "Expand results panel" }).isVisible(), true, "restore retains collapsed results even after changing result tabs");
+  await page.locator(".cm-content").evaluate((e) => {
+    const v = (e as any).cmTile.root.view;
+    const dispatch = v.dispatch.bind(v);
+    (window as any).editorTrace = [];
+    const keyTrace = (event: KeyboardEvent) => queueMicrotask(() => {
+      (window as any).editorTrace.push({ key: event.key, ctrl: event.ctrlKey, shift: event.shiftKey, prevented: event.defaultPrevented, active: document.activeElement?.getAttribute("aria-label") });
+    });
+    document.addEventListener("keydown", keyTrace);
+    (window as any).endEditorTrace = () => { v.dispatch = dispatch; document.removeEventListener("keydown", keyTrace); };
+    v.dispatch = (...args: any[]) => {
+      dispatch(...args);
+      const h = v.state.values.find((x: any) => x && Array.isArray(x.done) && Array.isArray(x.undone));
+      (window as any).editorTrace.push({ text: v.state.doc.toString().slice(0, 30), done: h?.done.length, undone: h?.undone.length });
+    };
+  });
   await page.locator(".cm-content").focus();
   await page.keyboard.press("Control+z");
   assert.notEqual(await editorDocument(), focusDocument);
   await page.keyboard.press("Control+Shift+z");
+  if ((await editorDocument()) !== focusDocument) console.error("UNDO TRACE", await page.evaluate(() => ({ trace: (window as any).editorTrace, platform: navigator.platform, agent: navigator.userAgent, active: document.activeElement?.outerHTML.slice(0, 100) })));
   assert.equal(await editorDocument(), focusDocument, "undo/redo survive focus modes");
+  await page.evaluate(() => (window as any).endEditorTrace());
   await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("reading");
   await page.getByRole("button", { name: "Reset layout", exact: true }).click();
   assert.equal(await description.getAttribute("aria-valuenow"), "380");
@@ -779,6 +796,7 @@ try {
   await replace("export function double(n: number) { return n * 3; }");
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
   await input.fill("{");
+  await page.locator('button[aria-label="Run"]:disabled').waitFor();
   assert.equal(await runButton().isDisabled(), true);
   await input.fill("6");
   failSavePath = "helpers.ts";

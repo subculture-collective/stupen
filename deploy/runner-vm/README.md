@@ -43,3 +43,12 @@ write `RUNNER_TOKEN=…` to `/etc/stupen/agent.env` (mode 600), install
 
 `stupen-egress.service` and the agent should run the same release as the
 server, so the proxy's address rules and the agent's protocol match.
+
+## Coding workspace practice capability
+
+The workspace uses authenticated practice protocol v1 for TypeScript/JavaScript,
+Python and Go. Deploy the compatible agent before the app, then check
+`/v1/status.practice`: version 1 and all four runtime IDs must be present.
+Python needs the existing tools venv; Go needs a sandboxed toolchain ≥1.24.
+An unavailable/old agent disables practice without app-host execution fallback.
+See [release checks and scoped recovery](../../docs/workspace-rollout.md).

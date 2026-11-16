@@ -205,3 +205,7 @@ The name, mark, colours and type come from the Stupen pack in SUBCULT's Studio (
 ## Licence
 
 Stupen is free software under the GNU Affero General Public License, version 3 only (`LICENSE`). If you run a modified copy for other people over a network, offer them its source. The files under `skills/` that came from other projects keep their MIT notices. Report security problems as described in `SECURITY.md`.
+
+Coding workspace operations: [Run/Submit and private history](docs/workspace-execution.md),
+[browser qualification](docs/workspace-qualification.md), and
+[app/runner release and recovery](docs/workspace-rollout.md).
