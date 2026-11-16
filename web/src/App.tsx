@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { api, type Job, load, type Me, type ProviderStatus, save, type Track, type TrackState } from "./api.ts";
+import { api, type Job, type Me, type ProviderStatus, type Track, type TrackState } from "./api.ts";
 import { JobStrip } from "./Jobs.tsx";
 import { Account } from "./Account.tsx";
 import { Admin } from "./Admin.tsx";
@@ -11,7 +11,7 @@ import { Materials } from "./Materials.tsx";
 import { Plan } from "./Plan.tsx";
 import { Prompts } from "./Prompts.tsx";
 import { TrackForm } from "./TrackForm.tsx";
-import { ThemeIcon } from "./ui.tsx";
+import { Appearance } from "./Appearance.tsx";
 
 export type Route =
   | { page: "home" }
@@ -55,12 +55,6 @@ function useHash(): string {
   );
 }
 
-type Theme = "system" | "light" | "dark";
-function applyTheme(t: Theme) {
-  if (t === "system") delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = t;
-}
-
 export function App() {
   const route = parseRoute(useHash());
   const [me, setMe] = useState<Me>();
@@ -69,10 +63,8 @@ export function App() {
   const [state, setState] = useState<TrackState>();
   const [error, setError] = useState<string>();
   const models = useModels();
-  const [theme, setTheme] = useState<Theme>(() => load<Theme>("study-coach:theme", "system"));
   const trackId = route.page === "track" ? route.track : undefined;
 
-  useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => {
     api.me().then(setMe, (e) => setError(e.message));
     api.providers().then(setProviders, () => {});
@@ -117,7 +109,6 @@ export function App() {
 
   const reloadTracks = async () => setTracks(await api.tracks());
 
-  const nextTheme: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
   const view = route.page === "track" ? route.view : undefined;
 
   return (
@@ -162,19 +153,8 @@ export function App() {
         <a className={`top-link ${route.page === "prompts" ? "on" : ""}`} href="#/prompts">
           Prompts
         </a>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label={`Theme: ${theme}. Switch to ${nextTheme[theme]}`}
-          title={`Theme: ${theme}`}
-          onClick={() => {
-            const t = nextTheme[theme];
-            setTheme(t);
-            save("study-coach:theme", t);
-          }}
-        >
-          <ThemeIcon theme={theme} />
-        </button>
+        <div id="workspace-command-control" />
+        <Appearance />
         {me?.authMode === "accounts" && me.isAdmin && (
           <a className={`top-link ${route.page === "admin" ? "on" : ""}`} href="#/admin">
             Admin

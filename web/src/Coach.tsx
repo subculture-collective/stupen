@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, type Help, type LessonMeta, load, type Material, type Prompt, type Provider, save, type Track, type Trigger } from "./api.ts";
 import { chatKey, type Message, chatStore, useChats } from "./chatStore.ts";
@@ -41,6 +41,7 @@ export function Coach(props: {
   onHelp?: (h: Help) => void;
   onVerdict?: (v: "pass" | "revise") => void;
   onCollapse?: () => void;
+  paneTools?: ReactNode;
 }) {
   useChats();
   const { track, lesson } = props;
@@ -136,6 +137,13 @@ export function Coach(props: {
       <div className="coach-head">
         {props.onCollapse && <button type="button" className="panel-fold" aria-label="Collapse coach panel" aria-expanded={true} onClick={props.onCollapse}>›</button>}
         <h2>Coach</h2>
+        <span className="spacer" />
+        <button type="button" className="link small" onClick={() => chatStore.clear(key)} disabled={busy || !convo.messages.length}>
+          New chat
+        </button>
+        {props.paneTools}
+      </div>
+      <div className="coach-controls">
         <ModelPicker
           value={provider}
           disabled={busy}
@@ -145,12 +153,6 @@ export function Coach(props: {
             save(`study-coach:provider:${track.id}`, p);
           }}
         />
-        <span className="spacer" />
-        <button type="button" className="link small" onClick={() => chatStore.clear(key)} disabled={busy || !convo.messages.length}>
-          New chat
-        </button>
-      </div>
-      <div className="coach-controls">
         <label className="limit" title={LADDER[ceiling]}>
           <span className="small">Help limit</span>
           <select value={ceiling} onChange={(e) => setLimit(Number(e.target.value))} aria-describedby="limit-desc">

@@ -1,10 +1,11 @@
 # Run and Submit
 
-The workspace toolbar keeps both actions visible for code lessons:
+The Code pane keeps Run at the top right and Submit at the bottom right:
 
 - **Run** saves editable source, then tries all sample/custom cases.
   It never grades the lesson or fires grading coach triggers. Invalid case
-  inputs or missing metadata/runner capability disable it with a visible reason.
+  inputs or missing sample-runner capability disable sample execution. Lessons
+  without callable sample metadata run their supplied tests without grading instead.
 - **Submit** saves source, then runs the original canonical lesson checks.
   Case edits cannot alter those tests. Only this path records attempts, graded
   results, fail streak and first-pass progress, and fires the existing coach
@@ -13,16 +14,17 @@ The workspace toolbar keeps both actions visible for code lessons:
 On Windows/Linux, **Ctrl+Enter** submits and **Ctrl+Shift+Enter** runs practice.
 On macOS, use **Command+Enter** and **Command+Shift+Enter**. These bindings work
 inside the editor. Save, completion, multiple cursors and Tab focus mode retain
-their existing bindings. The toolbar shows platform-specific shortcuts.
+their existing bindings. Button tooltips show platform-specific shortcuts.
 
 A shared execution lock prevents overlapping actions, including repeated
 keyboard shortcuts. Results retain a stale notice after code edits, including
 edits undone while the operation is pending. Practice and canonical results
 have separate state. Save/runner failures keep the inputs and source available.
 
-Legacy and unsupported code formats still use Submit; Run explains why it is
-unavailable. Written lessons keep **Submit for grading** and the coach. Container
-preview remains a separate action. The server still enforces account ownership,
+Lessons without callable samples use **Run** to try their ordinary tests and
+**Submit** to record an attempt. Run results appear separately in Test Result;
+Testcases points to the supplied test files. Written lessons keep **Submit for grading**
+and the coach. Container preview remains a separate action. The server still enforces account ownership,
 authentication, quota and runtime availability.
 
 Verified with the editor browser fixture: distinct toolbar/keyboard dispatch,
@@ -31,7 +33,8 @@ edit/undo staleness and the existing layout/editor/reference regressions.
 
 ## Test Result
 
-Run now tries all currently valid sample/custom cases in their displayed order.
+For callable exercises, Run tries all currently valid sample/custom cases in their
+displayed order.
 It opens Test Result without moving editor focus. Select a result to inspect
 that run's recorded named inputs, optional expected value, actual value, measured
 case duration and bounded stdout/stderr. Switching result cases or returning to
@@ -73,3 +76,20 @@ success without a retained result. In-flight canonical submissions are limited
 to one per account. Infrastructure failures before checks finish create no
 submission; practice runs never write history.
 
+## Workspace controls
+
+The bar below navigation shows the problem title and objective. The top-bar
+Workspace settings menu contains light/dark/system appearance, three palettes,
+reading font and text size, focus layouts and Reset layout. Fonts are bundled
+locally. The command picker opens from the top bar or Ctrl/Cmd+K; search for a
+layout, pane action, Run, Submit or lesson title, then use arrows and Enter.
+
+Problem and Coach each have compact controls for collapse and floating/inset
+placement. Floating panes can be dragged by their move icon, moved with arrow
+keys while that icon is focused, or resized from their lower corner. Narrow
+screens use the existing pane tabs. Collapse and placement choices persist in
+this browser; Reset layout restores inset Problem and folded Coach.
+
+Problem List closes on Escape, lesson selection or an outside click. Code's
+quiet Reset file and Delete icons open confirmation dialogs with Cancel focused
+first. Markdown uses the palette for headings, tables, quotes and code syntax.

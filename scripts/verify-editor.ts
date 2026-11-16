@@ -23,7 +23,7 @@ const code: Record<string, string> = {
   "solution.test.ts": 'import { test } from "node:test";\n',
 };
 const track: Track = { id: "editor-check", title: "Editor checks", subject: "Programming", runner: "typescript", level: "beginner", goals: "Practise", background: "", style: "", sessionMinutes: 20, defaultCeiling: 0, provider: "claude", web: false, createdAt: "", updatedAt: "" };
-const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.\n\n" + "Read this lesson while coding.\n\n".repeat(80), hints: ["Try a map.", "Check the edge cases."], sources: [{ title: "Fixture reading", url: "https://example.com/lesson" }], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
+const meta: LessonMeta = { id: "01-editor", title: "Editor lesson", objective: "Practise editing", brief: "Edit the solution.\n\n## Contract\n\n> Use the supplied tests.\n\n```go\nfunc Double(n int64) int64 { return n * 2 }\n```\n\n| Input | Output |\n| --- | --- |\n| 2 | 4 |\n\n" + "Read this lesson while coding.\n\n".repeat(80), hints: ["Try a map.", "Check the edge cases."], sources: [{ title: "Fixture reading", url: "https://example.com/lesson" }], files: Object.keys(code).map((path) => ({ path, role: path.includes(".test.") ? "test" : "starter" })), createdAt: "", status: "started", attempts: 0, verified: true };
 meta.practice = publishedPractice(JSON.stringify({ version: 1, entry: { file: "helpers.ts", symbol: "double" }, inputs: [{ name: "n", schema: { type: "integer" } }], output: { type: "integer" }, cases: [{ id: "sample-1", name: "Double two", inputs: { n: 2 }, expected: 4 }, { id: "sample-2", name: "Double zero", inputs: { n: 0 } }] }), track.runner, meta.files, meta.verified)!;
 const { practice: _samples, ...legacyMeta } = meta;
 const second: LessonMeta = { ...legacyMeta, hints: [], id: "02-editor", title: "Next editor lesson", objective: "Next lesson context" };
@@ -35,6 +35,7 @@ let failHistory = false;
 let holdHistory = false;
 let releaseHistory: (() => void) | undefined;
 let checkRequests = 0;
+let failNextCheck = false;
 let holdCheck = false;
 let releaseCheck: (() => void) | undefined;
 let runRequests = 0;
@@ -111,6 +112,7 @@ await page.route("**/api/**", async (route) => {
       data = { ok: true };
     } else data = caseDrafts;
   }
+  else if (path.endsWith("/try-checks")) data = { checks: { at: "", passed: true, sandboxed: true, results: [{ command: "go test", exitCode: 0, durationMs: 1, timedOut: false, output: "PASS" }] } };
   else if (path.endsWith("/preview")) data = { html: "<h1>Fixture preview</h1>", result: { output: "", exitCode: 0, durationMs: 1, timedOut: false } };
   else if (path.endsWith("/solution")) {
     solutionRequests++;
@@ -132,6 +134,7 @@ await page.route("**/api/**", async (route) => {
       data = { ok: true };
     } else data = { content: code[url.searchParams.get("path")!] };
   } else if (path.endsWith("/check")) {
+    if (failNextCheck) { failNextCheck = false; await route.fulfill({ status: 503, json: { error: "Fixture Submit unavailable" } }); return; }
     checkRequests++;
     if (holdCheck) await new Promise<void>((resolve) => { releaseCheck = resolve; });
     meta.lastChecks = { at: "", passed: false, sandboxed: true, results: [{ command: "go test", exitCode: 1, durationMs: 1, timedOut: false, output: "./solution.go:6:2: undefined: missing" }] };
@@ -156,6 +159,10 @@ const replace = async (text: string) => {
 };
 // CodeMirror virtualizes offscreen lines; DOM innerText is not the document.
 const editorDocument = () => page.locator(".cm-content").evaluate((e) => (e as HTMLElement & { cmTile: { root: { view: EditorView } } }).cmTile.root.view.state.doc.toString());
+const workspaceSettings = page.getByLabel("Workspace settings", { exact: true });
+const openSettings = async () => { if (!(await page.locator(".appearance-menu").getAttribute("open") !== null)) await workspaceSettings.click(); };
+const selectLayout = async (id: string) => { await openSettings(); await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption(id); await workspaceSettings.click(); };
+const resetLayout = async () => { await openSettings(); await page.getByRole("button", { name: "Reset layout", exact: true }).click(); await workspaceSettings.click(); };
 const waitFor = (test: () => boolean) => page.waitForFunction(test, undefined, { timeout: 20_000 });
 
 try {
@@ -164,6 +171,70 @@ try {
   const saved = () => page.locator(".save-state").filter({ hasText: /^Saved$/ }).waitFor();
   const caret = (text: string) => page.locator(".caret-status").filter({ hasText: text }).waitFor();
   await saved();
+  await page.locator('.md code[data-language="go"] .tok-keyword').first().waitFor();
+  // Appearance, pane modes, commands and destructive controls are part of the workspace.
+  await openSettings();
+  await page.getByRole("combobox", { name: "Palette", exact: true }).selectOption("tide");
+  await page.getByRole("combobox", { name: "Reading font", exact: true }).selectOption("literata");
+  await page.getByRole("combobox", { name: "Appearance", exact: true }).selectOption("dark");
+  await workspaceSettings.click();
+  await page.evaluate(async () => { await document.fonts.load('14px "Literata"'); });
+  assert.equal(await page.evaluate(() => document.fonts.check('14px "Literata"')), true);
+  assert.match(await page.locator(".md").first().evaluate((e) => getComputedStyle(e).fontFamily), /Literata/);
+  await page.reload();
+  await page.locator(".cm-content").waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), "tide");
+  await openSettings();
+  await page.getByRole("combobox", { name: "Reading font", exact: true }).selectOption("atkinson");
+  await workspaceSettings.click();
+  await page.evaluate(async () => { await document.fonts.load('14px "Atkinson Hyperlegible"'); });
+  assert.equal(await page.evaluate(() => document.fonts.check('14px "Atkinson Hyperlegible"')), true);
+  await openSettings();
+  await page.getByRole("combobox", { name: "Palette", exact: true }).selectOption("stair");
+  await page.getByRole("combobox", { name: "Reading font", exact: true }).selectOption("golos");
+  await page.getByRole("combobox", { name: "Appearance", exact: true }).selectOption("light");
+  await page.locator(".workspace-title").click();
+  assert.equal(await page.locator(".appearance-menu").getAttribute("open"), null, "outside click closes settings");
+  await page.getByRole("button", { name: "Collapse problem panel", exact: true }).click();
+  assert.equal(await page.getByRole("region", { name: "Lesson reference", exact: true }).isVisible(), false);
+  await page.getByRole("button", { name: "Expand problem panel", exact: true }).click();
+  await page.getByRole("button", { name: "Float Problem pane", exact: true }).click();
+  assert.equal(await page.locator(".floating-problem").isVisible(), true);
+  const floatingBox = (await page.locator(".floating-problem").boundingBox())!;
+  await page.getByRole("button", { name: "Move floating Problem pane", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  assert.ok((await page.locator(".floating-problem").boundingBox())!.x > floatingBox.x);
+  await page.getByRole("button", { name: "Maximize reading pane", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "Move floating Problem pane", exact: true }).count(), 0, "focused Problem has no floating move handle");
+  await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+  await page.getByRole("button", { name: "Move floating Problem pane", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Inset Problem pane", exact: true }).click();
+  await page.getByRole("button", { name: "Expand coach panel", exact: true }).click();
+  await page.getByRole("button", { name: "Float Coach pane", exact: true }).click();
+  assert.equal(await page.locator(".floating-coach").isVisible(), true);
+  await page.getByRole("button", { name: "Inset Coach pane", exact: true }).click();
+  await page.getByRole("button", { name: "Collapse coach panel", exact: true }).click();
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Search commands", exact: true }).fill("Focus code");
+  await page.keyboard.press("Enter");
+  assert.equal(await page.locator(".learn.layout-code").isVisible(), true);
+  await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
+  for (const label of ["Reset file", "Delete lesson"]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    const confirmation = page.getByRole("dialog", { name: label, exact: true });
+    await confirmation.waitFor();
+    assert.equal(await confirmation.getByRole("button", { name: "Cancel", exact: true }).evaluate((e) => e === document.activeElement), true);
+    await page.keyboard.press("Escape");
+  }
+  await page.getByRole("button", { name: "Problem List", exact: true }).click();
+  await page.mouse.click(5, 5);
+  assert.equal(await page.getByRole("dialog", { name: "Problem List", exact: true }).isVisible(), false);
+  const runBox = (await page.getByRole("button", { name: "Run", exact: true }).boundingBox())!;
+  const submitBox = (await page.getByRole("button", { name: "Submit", exact: true }).boundingBox())!;
+  const codeBox = (await page.getByRole("region", { name: "Code", exact: true }).boundingBox())!;
+  assert.ok(runBox.x + runBox.width > codeBox.x + codeBox.width - 20, "Run is top right inside Code");
+  assert.ok(submitBox.x + submitBox.width > codeBox.x + codeBox.width - 20 && submitBox.y > codeBox.y + codeBox.height - 60, "Submit is bottom right inside Code");
+  console.log("PASS: appearance persistence/fonts, settings dismissal, collapsed/floating panes, command keyboard, modal confirmations, outside-click problem list, action placement");
   assert.ok(meta.practice, "fixture publishes validated optional sample metadata");
   assert.equal(await page.getByRole("button", { name: "Run", exact: true }).count(), 1, "metadata alone never advertises practice execution");
   assert.equal(await page.getByRole("button", { name: /^Submit$/ }).isEnabled(), true);
@@ -271,7 +342,7 @@ try {
   assert.equal(chats.length, 0, "case edits do not trigger coaching");
   assert.ok(caseWrites > 0);
   console.log("PASS: visible case body, stable samples, custom add/remove/limit, validation, reload/selection, failed-save retry, serialized saves and scroll/resize");
-  assert.match(await page.locator(".editor-toolbar").innerText(), /solution.ts.*TypeScript/s);
+  assert.match(await page.locator(".editor-toolbar").innerText(), /TypeScript/s);
   assert.match(await page.locator(".editor-toolbar").innerText(), /Checks: Node 24/);
   assert.equal(await page.locator(".editor-toolbar select").count(), 0);
   await caret("Ln 1, Col 1");
@@ -538,7 +609,7 @@ try {
     const focused = (await region.boundingBox())!;
     const work = (await page.locator(".workbench").boundingBox())!;
     assert.ok(Math.abs(focused.width - work.width) < 1 && focused.height > work.height * .75, "focus fills the workspace below its toolbar");
-    assert.equal(await page.locator("#workspace-coach").isVisible(), false);
+    assert.equal(await page.getByRole("button", { name: "Expand coach panel" }).isVisible(), true);
     await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
     await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label")?.startsWith("Maximize"));
     assert.equal(await trigger.evaluate((e) => e === document.activeElement), true, "restore returns focus to its trigger");
@@ -551,7 +622,7 @@ try {
     assert.equal(await referenceTabs.getByRole("tab", { name: "Hints", exact: true }).getAttribute("aria-selected"), "true");
   }
   await page.getByRole("button", { name: "Collapse results panel" }).click();
-  await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("results");
+  await selectLayout("results");
   await page.getByRole("region", { name: "Results panel", exact: true }).waitFor();
   await page.getByRole("tab", { name: /^Problems/ }).click();
   await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
@@ -578,8 +649,8 @@ try {
   if ((await editorDocument()) !== focusDocument) console.error("UNDO TRACE", await page.evaluate(() => ({ trace: (window as any).editorTrace, platform: navigator.platform, agent: navigator.userAgent, active: document.activeElement?.outerHTML.slice(0, 100) })));
   assert.equal(await editorDocument(), focusDocument, "undo/redo survive focus modes");
   await page.evaluate(() => (window as any).endEditorTrace());
-  await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("reading");
-  await page.getByRole("button", { name: "Reset layout", exact: true }).click();
+  await selectLayout("reading");
+  await resetLayout();
   assert.equal(await description.getAttribute("aria-valuenow"), "380");
   await page.getByRole("button", { name: "Expand coach panel" }).click();
   assert.equal(await coach.getAttribute("aria-valuenow"), "400");
@@ -665,9 +736,9 @@ try {
   await page.waitForURL(/learn\/02-editor$/);
   await page.getByRole("tablist", { name: "Workspace panes" }).getByRole("tab", { name: "Description", exact: true }).click();
   await page.getByRole("heading", { name: second.title, exact: true }).waitFor();
-  await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("results");
+  await selectLayout("results");
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
-  await casesPanel.getByText(/Editable cases need compatible generated sample metadata/).waitFor();
+  await casesPanel.getByText(/This exercise uses the supplied test files/).waitFor();
   assert.equal(await casesPanel.getByRole("button", { name: "Add custom case" }).count(), 0);
   await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
 
@@ -717,15 +788,18 @@ try {
   for (const viewport of [{ width: 1153, height: 814 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await openSettings();
     const layouts = page.getByRole("combobox", { name: "Layouts", exact: true });
+    await layouts.scrollIntoViewIfNeeded();
     const box = (await layouts.boundingBox())!;
     assert.ok(box.y >= 0 && box.y + box.height <= viewport.height, "layout recovery is always reachable");
     await layouts.selectOption("results");
+    await workspaceSettings.click();
     const focused = (await page.getByRole("region", { name: "Results panel", exact: true }).boundingBox())!;
     assert.ok(focused.height > 40 && focused.y + focused.height <= viewport.height + 1, "focused results fit after rotation");
     await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
   }
-  await page.getByRole("button", { name: "Reset layout", exact: true }).click();
+  await resetLayout();
   assert.equal(await page.evaluate(() => localStorage.getItem("study-coach:description-width")), "380");
   console.log("PASS: touch-sized focus controls, invalid stored geometry and viewport rotation recovery");
   assert.deepEqual(errors, []);
@@ -800,12 +874,12 @@ try {
   assert.equal(await runButton().isDisabled(), true);
   await input.fill("6");
   failSavePath = "helpers.ts";
-  await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("code");
+  await selectLayout("code");
   const runCount = runRequests;
   await runButton().click();
   await page.getByRole("alert").filter({ hasText: "Fixture disk full" }).first().waitFor();
   assert.equal(runRequests, runCount, "failed code saves cannot dispatch practice");
-  assert.equal(await page.locator(".workbench > .error").filter({ hasText: "Fixture disk full" }).isVisible(), true, "toolbar run failures stay visible from focused Code layout");
+  assert.equal(await page.locator(".code-actions > .error").filter({ hasText: "Fixture disk full" }).isVisible(), true, "toolbar run failures stay visible from focused Code layout");
   failSavePath = undefined;
   assert.equal(chats.length, chatCount, "practice never fires grading coach triggers");
   await openFile("helpers.ts");
@@ -916,14 +990,14 @@ try {
       await page.reload();
       await page.locator(".cm-content").waitFor();
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
-      await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("reading");
+      await selectLayout("reading");
       await referenceTabs.getByRole("tab", { name: "Submissions", exact: true }).click();
       await history.getByRole("button", { name: /Failed/ }).first().click();
       await history.getByText("Retained details truncated to the history limit.", { exact: true }).waitFor();
       await history.locator("pre").scrollIntoViewIfNeeded();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${theme} ${viewport.width}: history stays within viewport`);
       await page.getByRole("button", { name: "Restore split layout", exact: true }).click();
-      await page.getByRole("combobox", { name: "Layouts", exact: true }).selectOption("code");
+      await selectLayout("code");
       await page.getByRole("button", { name: "Run", exact: true }).scrollIntoViewIfNeeded();
       const runBox = (await runButton().boundingBox())!;
       assert.ok(runBox.x >= 0 && runBox.x + runBox.width <= viewport.width, "primary action reachable");
@@ -966,12 +1040,20 @@ try {
   assert.equal(await page.locator(".cm-content").evaluate((e) => e === document.activeElement), true);
   console.log("PASS: keyboard case edit/select, Run, result, Submit, history and editor return");
 
-  // Legacy lessons expose ordinary Submit and explain absent case metadata.
+  // Lessons without callable metadata can Run ordinary tests without grading.
   delete meta.practice;
   await page.reload();
   await page.getByRole("tab", { name: "Testcases", exact: true }).click();
-  await page.getByText(/Run needs compatible generated case metadata/).first().waitFor();
-  assert.equal(await runButton().isDisabled(), true);
+  await casesPanel.getByText(/This exercise uses the supplied test files/).waitFor();
+  assert.equal(await runButton().isEnabled(), true);
+  failNextCheck = true;
+  await page.getByRole("button", { name: "Submit", exact: true }).click();
+  await page.locator(".code-actions").getByRole("alert").filter({ hasText: "Fixture Submit unavailable" }).waitFor();
+  const beforeTry = { attempts: meta.attempts, history: submissions.length, checks: checkRequests, chats: chats.length };
+  await runButton().click();
+  await page.getByText("Practice only. Your progress and submission history have not changed.").waitFor();
+  assert.deepEqual({ attempts: meta.attempts, history: submissions.length, checks: checkRequests, chats: chats.length }, beforeTry);
+  assert.equal(await page.locator(".code-actions").getByRole("alert").count(), 0, "successful Run clears the prior Submit failure");
   assert.equal(await page.getByRole("button", { name: "Submit", exact: true }).isEnabled(), true);
   console.log("PASS: legacy metadata keeps canonical Submit usable");
 
@@ -984,6 +1066,18 @@ try {
   await page.getByRole("region", { name: "Coach", exact: true }).waitFor();
   assert.equal(checkRequests, checksBeforeGrade, "written grading does not dispatch canonical checks");
   console.log("PASS: written Submit keeps coach grading");
+
+  await page.route("**/api/models", async (route) => route.fulfill({ json: { choices: [{ id: "codex", label: "ChatGPT", model: "gpt-6.1-sol" }], kinds: [], connections: [] } }));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(() => { localStorage.setItem("study-coach:coach-width", "260"); localStorage.setItem("study-coach:coach-closed", "false"); });
+  await page.reload();
+  await page.getByRole("combobox", { name: "Coach model", exact: true }).waitFor();
+  const coachBounds = (await page.getByRole("region", { name: "Coach", exact: true }).boundingBox())!;
+  for (const label of ["Float Coach pane", "Collapse coach panel"]) {
+    const bounds = (await page.getByRole("button", { name: label, exact: true }).boundingBox())!;
+    assert.ok(bounds.x >= coachBounds.x && bounds.x + bounds.width <= coachBounds.x + coachBounds.width, `${label} fits the narrow Coach with a selected model`);
+  }
+  console.log("PASS: floating Problem focus recovery and narrow Coach controls with a selected model");
 
   track.runner = "container";
   track.environment = { preset: "node", label: "Fixture", image: "node:24", setup: "", install: "", check: "node --test", preview: "cat index.html", manifests: [], layout: "", syntax: "javascript", checkNetwork: false, env: {}, memory: "256m", cpus: 1, timeoutSec: 120 };

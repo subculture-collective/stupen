@@ -168,14 +168,15 @@ async function lessonState(user: string, track: string, lesson: string) {
 }
 
 const submitting = new Set<string>();
-async function checkLesson(user: string, trackId: string, lesson: string) {
+async function checkLesson(user: string, trackId: string, lesson: string, record = true) {
   if (submitting.has(user)) throw new HttpError(429, "A submission is already in progress for your account.");
   submitting.add(user);
-  try { return await submitLesson(user, trackId, lesson); }
+  try { return await submitLesson(user, trackId, lesson, record); }
   finally { submitting.delete(user); }
 }
 
-async function submitLesson(user: string, trackId: string, lesson: string) {
+async function submitLesson(user: string, trackId: string, lesson: string, record: boolean) {
+  const meta = await getLesson(user, trackId, lesson);
   const track = await getTrack(user, trackId);
   const r = runner(track.runner);
   const files = await lessonFiles(user, trackId, lesson);
@@ -191,7 +192,7 @@ async function submitLesson(user: string, trackId: string, lesson: string) {
     if (!commands.length) throw new HttpError(400, r.graded === "coach" ? "written lessons are graded by the coach: use Submit for grading" : "set a check command in the track settings first");
     checks = await exec.quickChecks(lessonDir(user, trackId, lesson), r.id, track.customCommand);
   }
-  const meta = await getLesson(user, trackId, lesson);
+  if (!record) return { checks };
   const next = await recordSubmission(user, trackId, lesson, checks);
   forgetStorage(user);
   return { checks, meta: next, firstPass: checks.passed && !meta.passedAt };
@@ -461,6 +462,7 @@ const routes: Route[] = [
     pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/starter$`),
     handle: async (user, m, _r, _s, url) => ({ content: await starterContent(user, m[1]!, m[2]!, url.searchParams.get("path") ?? "") }),
   },
+  { method: "POST", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/try-checks$`), handle: (user, m) => checkLesson(user, m[1]!, m[2]!, false) },
   { method: "POST", pattern: new RegExp(`^/api/tracks/${T}/lessons/${L}/check$`), handle: (user, m) => checkLesson(user, m[1]!, m[2]!) },
   {
     method: "POST",

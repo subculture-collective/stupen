@@ -1,3 +1,6 @@
+import { createPortal } from "react-dom";
+import { CommandPicker, closeOutside, type WorkspaceCommand } from "./CommandPicker.tsx";
+import { PaneIcon, useFloatingPane } from "./PaneTools.tsx";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { api, type Checks, type Help, type Job, type LessonFile, type LessonMeta, type LessonSummary, load, type Me, save, type TrackState } from "./api.ts";
@@ -9,7 +12,7 @@ import { PracticeResults, type PracticeOutcome } from "./PracticeResults.tsx";
 import { Submissions } from "./Submissions.tsx";
 import { Testcases, type CaseControls, type TestcasesHandle } from "./Testcases.tsx";
 import { Md } from "./Md.tsx";
-import { ConfirmButton, LockIcon, RUN_KEY, PRACTICE_KEY, StatusIcon, tabKeys, useMedia } from "./ui.tsx";
+import { ConfirmButton, ConfirmDialogButton, LockIcon, RUN_KEY, PRACTICE_KEY, StatusIcon, tabKeys, useMedia } from "./ui.tsx";
 import { ResizeHandle } from "./ResizeHandle.tsx";
 import { LanguageService, typedFile, type CodeProblem } from "./languageService.ts";
 import { checkProblems, location as problemLocation } from "./problems.ts";
@@ -31,15 +34,21 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   const narrow = useMedia("(max-width: 980px)");
   const [pane, setPane] = useState<Pane>("code");
   const [layout, setLayout] = useState<WorkspaceLayout>("split");
+  const [readingClosed, setReadingClosed] = useState(() => load("study-coach:reading-closed", false));
+  const [readingFloating, setReadingFloating] = useState(() => load("study-coach:reading-floating", false));
+  const [coachFloating, setCoachFloating] = useState(() => load("study-coach:coach-floating", false));
+  const coachFloat = useFloatingPane("right", "Coach");
+  useEffect(() => { save("study-coach:reading-closed", readingClosed); save("study-coach:reading-floating", readingFloating); save("study-coach:coach-floating", coachFloating); }, [readingClosed, readingFloating, coachFloating]);
   const layoutSelect = useRef<HTMLSelectElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const changeLayout = (next: WorkspaceLayout) => {
     if (next === layout) return;
     if (layout === "split") returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (next === "reading") setReadingClosed(false);
     setLayout(next);
     if (next === "split") requestAnimationFrame(() => {
       const target = returnFocus.current;
-      (target?.isConnected && target.getClientRects().length ? target : layoutSelect.current)?.focus();
+      (target?.isConnected && target.getClientRects().length ? target : document.querySelector<HTMLElement>('.appearance-menu > summary'))?.focus();
     });
   };
   const [lesson, setLesson] = useState<{ meta: LessonMeta; files: LessonFile[]; help: Help }>();
@@ -82,18 +91,37 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
   const runner = props.me.runners.find((r) => r.id === state.track.runner);
   const openCoach = () => { setLayout("split"); setCoachClosed(false); setPane("coach"); };
 
+  const resetLayout = () => { setLayout("split"); setCoachWidth(400); setCoachClosed(true); setReadingClosed(false); setReadingFloating(false); setCoachFloating(false); setPane("code"); workbench.current?.resetLayout(); };
+  const commands: WorkspaceCommand[] = [
+    { id: "list", label: "Open problem list", run: () => problemList.current?.showModal() },
+    ...(["split", "reading", "code", "results"] as const).map((id) => ({ id, label: id === "split" ? "Split layout" : `Focus ${id === "reading" ? "problem" : id}`, run: () => { changeLayout(id); setPane(id === "reading" ? "reading" : "code"); } })),
+    { id: "reset", label: "Reset layout", run: resetLayout },
+    { id: "coach", label: coachClosed ? "Expand Coach" : "Collapse Coach", run: () => coachClosed ? openCoach() : setCoachClosed(true) },
+    { id: "problem", label: readingClosed ? "Expand Problem" : "Collapse Problem", run: () => { setLayout("split"); setReadingClosed(!readingClosed); setPane("reading"); } },
+    { id: "float-problem", label: readingFloating ? "Inset Problem pane" : "Float Problem pane", run: () => { setReadingFloating(!readingFloating); setReadingClosed(false); setLayout("split"); } },
+    { id: "float-coach", label: coachFloating ? "Inset Coach pane" : "Float Coach pane", run: () => { setCoachFloating(!coachFloating); openCoach(); } },
+    { id: "run", label: "Run code", detail: "Ungraded practice", run: () => workbench.current?.practice(), disabled: !lesson || runner?.graded === "coach" },
+    { id: "submit", label: "Submit solution", run: () => workbench.current?.submit(), disabled: !lesson },
+    ...state.lessons.map((l) => ({ id: `lesson-${l.id}`, label: l.title, detail: "Open lesson", run: () => go({ page: "track", track: state.track.id, view: "learn", lesson: l.id }) })),
+  ];
+  const menuTarget = document.getElementById("workspace-menu-controls");
+  const commandTarget = document.getElementById("workspace-command-control");
   return (
-    <div className={`learn ${narrow ? "narrow" : ""} layout-${layout}`} style={narrow ? undefined : { gridTemplateColumns: layout === "split" ? `minmax(0, 1fr) ${coachClosed ? "0 36px" : `6px minmax(260px, min(${coachWidth}px, 32%))`}` : "minmax(0, 1fr)" }}>
-      <div className="workspace-controls">
-        <button type="button" onClick={() => problemList.current?.showModal()} aria-haspopup="dialog">Problem List</button>
-        <label className="layout-control">Layouts <select ref={layoutSelect} aria-label="Layouts" value={layout} onChange={(e) => changeLayout((["split", "reading", "code", "results"] as const).find((id) => id === e.target.value) ?? "split")}>
-          <option value="split">Split</option><option value="reading">Focus reading</option><option value="code">Focus Code</option><option value="results">Focus results</option>
+    <div className={`learn ${narrow ? "narrow" : ""} layout-${layout}`} style={narrow ? undefined : { gridTemplateColumns: `minmax(0, 1fr) ${coachClosed || coachFloating || layout !== "split" ? "0 36px" : `6px minmax(260px, min(${coachWidth}px, 32%))`}` }}>
+      {menuTarget && createPortal(<>
+        <label>Layout<select ref={layoutSelect} aria-label="Layouts" value={layout} onChange={(e) => changeLayout(e.target.value as WorkspaceLayout)}>
+          <option value="split">Split</option><option value="reading">Focus problem</option><option value="code">Focus Code</option><option value="results">Focus results</option>
         </select></label>
-        <button type="button" onClick={() => { setLayout("split"); setCoachWidth(400); setCoachClosed(true); setPane("code"); workbench.current?.resetLayout(); }}>Reset layout</button>
+        <button type="button" className="small-button" onClick={resetLayout}>Reset layout</button>
+      </>, menuTarget)}
+      {commandTarget && createPortal(<CommandPicker commands={commands} />, commandTarget)}
+      <div className="workspace-controls">
+        <button type="button" className="pane-icon" title="Problem list" aria-label="Problem List" onClick={() => problemList.current?.showModal()} aria-haspopup="dialog"><PaneIcon name="list" /></button>
+        {lesson && <div className="workspace-title"><h1>{lesson.meta.title}</h1><p>{lesson.meta.objective}</p></div>}
         <span className="spacer" />
-        {!narrow && <button type="button" aria-expanded={layout === "split" && !coachClosed} aria-controls="workspace-coach" onClick={() => layout === "split" ? setCoachClosed(!coachClosed) : openCoach()}>Coach</button>}
+        {lesson?.meta.status === "passed" && <span className="pill pill-ok">Done</span>}
       </div>
-      <dialog ref={problemList} className="problem-list" aria-label="Problem List">
+      <dialog ref={problemList} className="problem-list" aria-label="Problem List" onClick={closeOutside}>
         <div className="problem-list-head"><h2>Problem List</h2><button type="button" autoFocus onClick={() => problemList.current?.close()}>Close</button></div>
         <div onClick={(e) => { if ((e.target as HTMLElement).closest("a")) problemList.current?.close(); }}>
           <LessonNav state={state} current={props.lessonId} onJob={props.onJob} refresh={props.refresh} />
@@ -133,23 +161,25 @@ export function Learn(props: { me: Me; state: TrackState; lessonId: string | und
             narrow={narrow}
             pane={pane}
             layout={layout}
+            readingClosed={readingClosed} setReadingClosed={setReadingClosed}
+            readingFloating={readingFloating} setReadingFloating={setReadingFloating}
             changeLayout={changeLayout}
             showCode={() => { setLayout("split"); setPane("code"); }}
             askCoach={openCoach}
           />
         )}
       </div>
-      {!narrow && layout === "split" && (coachClosed ? <div /> : <ResizeHandle label="Resize coach panel" value={coachWidth} min={260} max={600} reverse onChange={setCoachWidth} />)}
-      <div id="workspace-coach" className="side-panel" hidden={layout !== "split" || (narrow && pane !== "coach")}>
-        {!narrow && coachClosed && <button className="panel-rail" type="button" aria-label="Expand coach panel" aria-expanded={false} onClick={() => setCoachClosed(false)}>‹ Coach</button>}
-        <div className="panel-content" hidden={!narrow && coachClosed}>
+      {!narrow && (coachClosed || coachFloating || layout !== "split" ? <div /> : <ResizeHandle label="Resize coach panel" value={coachWidth} min={260} max={600} reverse onChange={setCoachWidth} />)}
+      <div id="workspace-coach" className={`side-panel ${!narrow && coachFloating && !coachClosed && layout === "split" ? "floating-pane floating-coach" : ""}`} style={!narrow && coachFloating && !coachClosed && layout === "split" ? coachFloat.style : undefined} hidden={narrow && (layout !== "split" || pane !== "coach")}>
+        {!narrow && (coachClosed || layout !== "split") && <button className="panel-rail" type="button" aria-label="Expand coach panel" aria-expanded={false} onClick={openCoach}><PaneIcon name="collapse" /> Coach</button>}
+        <div className="panel-content" hidden={!narrow && (coachClosed || layout !== "split")}>
         <Coach
+          paneTools={!narrow ? <div className="coach-pane-tools">{coachFloating && coachFloat.handle}<button type="button" className="pane-icon" aria-label={coachFloating ? "Inset Coach pane" : "Float Coach pane"} title={coachFloating ? "Inset pane" : "Float pane"} onClick={() => setCoachFloating(!coachFloating)}><PaneIcon name={coachFloating ? "dock" : "float"} /></button><button type="button" className="pane-icon" aria-label="Collapse coach panel" title="Collapse Coach" onClick={() => setCoachClosed(true)}><PaneIcon name="collapse" /></button></div> : undefined}
           track={state.track}
           lesson={lesson?.meta}
           materials={state.materials}
           vars={() => workbench.current?.vars() ?? {}}
           beforeSend={() => workbench.current?.saveAll() ?? Promise.resolve()}
-          {...(!narrow ? { onCollapse: () => setCoachClosed(true) } : {})}
           onHelp={(help) => setLesson((l) => (l ? { ...l, help } : l))}
           onVerdict={() => {
             void loadLesson();
@@ -312,7 +342,7 @@ function NoLessons(props: { state: TrackState; onJob: (j: Job) => void }) {
 
 // ---------- workbench ----------
 
-export type WorkbenchHandle = { vars: () => PromptVars; saveAll: () => Promise<void>; resetLayout: () => void };
+export type WorkbenchHandle = { vars: () => PromptVars; saveAll: () => Promise<void>; resetLayout: () => void; practice: () => void; submit: () => void };
 
 type FileState = { content: string; saved: string; loaded: boolean; saving?: boolean; saveError?: string | undefined };
 
@@ -346,11 +376,14 @@ const Workbench = forwardRef<
     narrow: boolean;
     pane: Pane;
     layout: WorkspaceLayout;
+    readingClosed: boolean; setReadingClosed: (closed: boolean) => void;
+    readingFloating: boolean; setReadingFloating: (floating: boolean) => void;
     changeLayout: (layout: WorkspaceLayout) => void;
     showCode: () => void;
   }
 >(function Workbench(props, ref) {
   const { meta, files } = props.lesson;
+  const readingFloat = useFloatingPane("left", "Problem");
   const track = props.state.track.id;
   const firstEditable = files.find((f) => f.editable)?.path;
   const [tab, setTab] = useState<string>(() => {
@@ -486,6 +519,7 @@ const Workbench = forwardRef<
   useImperativeHandle(ref, () => ({
     vars: () => ({ file: tab === "preview" ? "" : tab, selection: selection.current, failing: failingText(checks) }),
     saveAll,
+    practice: () => practice(), submit: () => { void run(); },
     resetLayout: () => { setDescriptionWidth(380); setResultHeight(260); setOutputOpen(false); },
   }));
 
@@ -500,6 +534,25 @@ const Workbench = forwardRef<
     timer.current = setTimeout(() => {
       void Promise.allSettled(allFiles.filter((f) => f.editable).map((f) => saveFile(f.path)));
     }, 1200);
+  };
+
+  const [testRun, setTestRun] = useState<Checks>();
+  const [testRunRevision, setTestRunRevision] = useState<number>();
+  const practice = () => {
+    if (meta.practice) { casesRef.current?.run(); return; }
+    if (execution.current || props.graded || !props.runnerOk) return;
+    execution.current = "practice";
+    setError(undefined); setPracticeBusy(true); setPracticeError(undefined); setTestRun(undefined); setOutputOpen(true); setResultTab("result"); props.showCode();
+    void (async () => {
+      try {
+        await saveAll();
+        if (allFiles.some((f) => f.editable && contentsRef.current[f.path]?.content !== contentsRef.current[f.path]?.saved)) throw new Error("Code changed while saving. Run again to use your latest edits.");
+        const revision = codeRevision.current;
+        const result = await api.tryChecks(track, meta.id);
+        setTestRun(result.checks); setTestRunRevision(revision);
+      } catch (e) { setPracticeError((e as Error).message); }
+      finally { execution.current = undefined; setPracticeBusy(false); }
+    })();
   };
 
   const run = async () => {
@@ -611,63 +664,20 @@ const Workbench = forwardRef<
 
   return (
     <article className="workbench" aria-label={meta.title}>
-      <div className="actions">
-        {!props.graded && <button type="button" aria-label="Run" aria-describedby="practice-availability" onClick={() => casesRef.current?.run()} disabled={running || practiceBusy || !practiceState.enabled}>
-          {practiceBusy ? "Running…" : "Run"} <kbd>{PRACTICE_KEY}</kbd>
-        </button>}
-        <button type="button" className="primary" aria-label={props.graded ? "Submit for grading" : "Submit"} onClick={() => void run()} disabled={running || practiceBusy || (!props.graded && !props.runnerOk)}>
-          {running ? "Submitting…" : props.graded ? "Submit for grading" : "Submit"}
-          {!running && <kbd>{RUN_KEY}</kbd>}
-        </button>
-        {summary && (
-          <button type="button" className={`check-summary ${checks!.passed ? "ok" : "bad"}`} aria-expanded={outputOpen} onClick={() => { setResultTab("output"); setOutputOpen(!outputOpen || resultTab !== "output"); }}>
-            <StatusIcon status={checks!.passed ? "passed" : "failed"} /> {summary}
-            {checksStale && <span className="muted">(before edits)</span>}
-          </button>
-        )}
-        <span className="spacer" />
-        {current?.added && (
-          <ConfirmButton className="link small" question={`Delete ${current.path}?`} confirmLabel="Delete file" danger onConfirm={() => void removeFile(current.path)}>
-            Delete file
-          </ConfirmButton>
-        )}
-        {current?.editable && !current.added && (
-          <ConfirmButton className="link small" question={`Reset ${current.path} to the starter code?`} confirmLabel="Reset" onConfirm={() => void reset(current.path)}>
-            Reset file
-          </ConfirmButton>
-        )}
-        <ConfirmButton className="link small" question="Delete this lesson and your work in it?" confirmLabel="Delete" danger onConfirm={() => api.deleteLesson(track, meta.id).then(props.onDeleted, (e) => setError(e.message))}>
-          Delete
-        </ConfirmButton>
-      </div>
-      {!props.graded && <p id="practice-availability" className="small muted" role="status">{practiceState.reason || "Run tries all sample and custom cases without grading. Submit judges the original lesson checks."}</p>}
-      {!props.graded && !props.runnerOk && <p className="small muted" role="status">Submit unavailable: {props.runnerDetail ?? "the runner is unavailable."}</p>}
-      {(error || practiceError) && (
-        <p className="error small" role="alert">
-          {error || `Practice: ${practiceError}`}
-        </p>
-      )}
-      {!props.runnerOk && !props.graded && <p className="notice small">Checks can't run on this server: {props.runnerDetail}.</p>}
-      <div className={`workbench-panes layout-${props.layout}`} style={props.narrow ? undefined : { gridTemplateColumns: props.layout === "split" ? `minmax(220px, min(${descriptionWidth}px, 45%)) 6px minmax(0, 1fr)` : "minmax(0, 1fr)" }}>
-        <section className="reading-pane" aria-label="Lesson reference" hidden={props.layout !== "reading" && (props.layout !== "split" || (props.narrow && props.pane !== "reading"))}>
-          <header className="lesson-head">
-            <div>
-              <h1>{meta.title}</h1>
-              <p className="muted small">{meta.objective}</p>
-            </div>
-            <div className="lesson-badges">
-              {meta.status === "passed" && <span className="pill pill-ok">done</span>}
-              {!meta.verified && !props.graded && (
-                <span className="pill pill-warn" title="The generated tests could not be confirmed against a reference solution. If a test looks wrong, ask the coach.">
-                  tests unverified
-                </span>
-              )}
-              {props.lesson.help && props.lesson.help.turns > 0 && <span className="pill">help used: {props.lesson.help.highest}</span>}
-              {meta.revealedAt && <span className="pill">solution viewed</span>}
-            </div>
-          </header>
-
-          <div className="pane-controls"><span className="small muted">Reading</span><button type="button" className="small-button" aria-label={props.layout === "reading" ? "Restore split layout" : "Maximize reading pane"} onClick={() => props.changeLayout(props.layout === "reading" ? "split" : "reading")}>{props.layout === "reading" ? "Restore" : "Maximize"}</button></div>
+      <div className={`workbench-panes layout-${props.layout}`} style={props.narrow ? undefined : { gridTemplateColumns: props.layout === "split" ? `${props.readingClosed || props.readingFloating ? "36px 0" : `minmax(220px, min(${descriptionWidth}px, 45%)) 6px`} minmax(0, 1fr)` : "minmax(0, 1fr)" }}>
+        {!props.narrow && props.layout === "split" && (props.readingClosed || props.readingFloating) && <button type="button" className="panel-rail problem-rail" aria-label="Expand problem panel" aria-expanded={false} onClick={() => { props.setReadingClosed(false); if (props.readingFloating && !props.readingClosed) props.setReadingFloating(false); }}><PaneIcon name="collapse" /> Problem</button>}
+        <section className={`reading-pane ${!props.narrow && props.readingFloating && props.layout === "split" ? "floating-pane floating-problem" : ""}`} style={!props.narrow && props.readingFloating && props.layout === "split" ? readingFloat.style : undefined} aria-label="Lesson reference" hidden={props.layout !== "reading" && (props.layout !== "split" || (props.narrow ? props.pane !== "reading" : props.readingClosed))}>
+          <div className="pane-controls"><span className="small muted">Problem</span><span className="spacer" />
+            {props.readingFloating && props.layout === "split" && !props.narrow && readingFloat.handle}
+            {!props.narrow && <button type="button" className="pane-icon" aria-label={props.readingFloating ? "Inset Problem pane" : "Float Problem pane"} title={props.readingFloating ? "Inset pane" : "Float pane"} onClick={() => props.setReadingFloating(!props.readingFloating)}><PaneIcon name={props.readingFloating ? "dock" : "float"} /></button>}
+            <button type="button" className="pane-icon" title="Focus problem" aria-label={props.layout === "reading" ? "Restore split layout" : "Maximize reading pane"} onClick={() => props.changeLayout(props.layout === "reading" ? "split" : "reading")}><PaneIcon name={props.layout === "reading" ? "restore" : "expand"} /></button>
+            {!props.narrow && <button type="button" className="pane-icon" aria-label="Collapse problem panel" title="Collapse problem" onClick={() => { props.setReadingClosed(true); props.changeLayout("split"); }}><PaneIcon name="collapse" /></button>}
+          </div>
+          <div className="lesson-badges">
+            {!meta.verified && !props.graded && <span className="pill pill-warn" title="The generated tests could not be confirmed against a reference solution. If a test looks wrong, ask the coach.">tests unverified</span>}
+            {props.lesson.help && props.lesson.help.turns > 0 && <span className="pill">help used: {props.lesson.help.highest}</span>}
+            {meta.revealedAt && <span className="pill">solution viewed</span>}
+          </div>
           <div className="reference-tabs" role="tablist" aria-label="Lesson reference">
             {(["description", "hints", "solution", "submissions"] as const).map((id) => <button key={id} id={`reading-${id}-tab`} type="button" role="tab" tabIndex={readingTab === id ? 0 : -1} aria-selected={readingTab === id} aria-controls={`reading-${id}`} onClick={() => setReadingTab(id)} onKeyDown={(e) => tabKeys(e, ["description", "hints", "solution", "submissions"], readingTab, setReadingTab)}>{id === "description" ? "Description" : id === "hints" ? "Hints" : id === "solution" ? "Reference solution" : "Submissions"}</button>)}
           </div>
@@ -738,18 +748,23 @@ const Workbench = forwardRef<
             {readingTab === "submissions" && <Submissions track={track} lesson={meta.id} attempts={meta.attempts} latest={meta.lastChecks} graded={props.graded} />}
           </div>
         </section>
-        {!props.narrow && props.layout === "split" && <ResizeHandle label="Resize description panel" value={descriptionWidth} min={220} max={640} onChange={setDescriptionWidth} />}
+        {!props.narrow && props.layout === "split" && (props.readingClosed || props.readingFloating ? <div /> : <ResizeHandle label="Resize description panel" value={descriptionWidth} min={220} max={640} onChange={setDescriptionWidth} />)}
         <section className="code-pane" aria-label="Code" hidden={props.layout === "reading" || (props.layout === "split" && props.narrow && props.pane !== "code")}>
           <div className="editor-toolbar" hidden={props.layout === "results"}>
             <h2 className="code-heading">Code</h2>
-            <button type="button" className="small-button" aria-label={props.layout === "code" ? "Restore split layout" : "Maximize Code pane"} onClick={() => props.changeLayout(props.layout === "code" ? "split" : "code")}>{props.layout === "code" ? "Restore" : "Maximize"}</button>
+            <button type="button" className="pane-icon" title="Focus code" aria-label={props.layout === "code" ? "Restore split layout" : "Maximize Code pane"} onClick={() => props.changeLayout(props.layout === "code" ? "split" : "code")}><PaneIcon name={props.layout === "code" ? "restore" : "expand"} /></button>
             {current && <><span className="active-file">{current.path}</span><span className="file-language muted">{fileLanguage(current.path)}</span></>}
             <span className="small muted">Checks: {runtime}</span>
             {current && !current.editable && <span className="pill">Read-only</span>}
+            <span className="spacer" />
+            {current?.added && <ConfirmDialogButton label="Delete file" question={`Delete ${current.path}?`} confirmLabel="Delete file" disabled={running || practiceBusy} onConfirm={() => void removeFile(current.path)}><PaneIcon name="delete" /></ConfirmDialogButton>}
+            {current?.editable && !current.added && <ConfirmDialogButton label="Reset file" question={`Reset ${current.path} to the starter code? Your edits will be lost.`} confirmLabel="Reset file" disabled={running || practiceBusy} onConfirm={() => void reset(current.path)}><PaneIcon name="reset" /></ConfirmDialogButton>}
+            <ConfirmDialogButton label="Delete lesson" question="Delete this lesson and your work in it?" confirmLabel="Delete lesson" disabled={running || practiceBusy} onConfirm={() => api.deleteLesson(track, meta.id).then(props.onDeleted, (e) => setError(e.message))}><PaneIcon name="delete" /></ConfirmDialogButton>
             <details className="keyboard-help">
               <summary>Keyboard help</summary>
               <p id="editor-help">Ctrl/Cmd+S saves the active file. Ctrl/Cmd+Enter {props.graded ? "submits for coach grading" : "submits canonical checks"}. Ctrl/Cmd+Shift+Enter runs all practice cases when available. Ctrl+Space opens completion; Enter accepts. Ctrl/Cmd+D selects the next matching word; Alt-drag selects a rectangle. Tab indents and Shift+Tab unindents. Press Escape, then Tab to leave the editor. Ctrl+M (Option+Shift+M on macOS) toggles Tab focus mode. Hover over a symbol for documentation.</p>
             </details>
+            {!props.graded && <button type="button" className="small-button run-button" aria-label="Run" title={meta.practice ? practiceState.reason || `Run practice cases (${PRACTICE_KEY})` : `Run lesson tests without grading (${PRACTICE_KEY})`} onClick={practice} disabled={running || practiceBusy || (meta.practice ? !practiceState.enabled : !props.runnerOk)}><PaneIcon name="run" />{practiceBusy ? "Running…" : "Run"}</button>}
           </div>
           <div className="tabs" role="tablist" aria-label="Lesson" hidden={props.layout === "results"}>
             {allFiles.map((f) => {
@@ -817,7 +832,7 @@ const Workbench = forwardRef<
                 onChange={(v) => edit(current.path, v)}
                 onSave={() => void saveFile(current.path).catch(() => {})}
                 onRun={() => void run()}
-                onPractice={() => casesRef.current?.run()}
+                onPractice={practice}
                 onSelect={(t) => (selection.current = t)}
                 onCaret={setCaret}
               />
@@ -838,20 +853,25 @@ const Workbench = forwardRef<
             <button type="button" role="tab" aria-selected={resultTab === "problems" && (outputOpen || props.layout === "results")} aria-controls="lesson-problems" onClick={() => { setResultTab("problems"); if (props.layout !== "results") setOutputOpen(true); }}>Problems ({problems.length})</button>
             <button type="button" role="tab" aria-selected={resultTab === "output" && (outputOpen || props.layout === "results")} aria-controls="lesson-output" onClick={() => { setResultTab("output"); if (props.layout !== "results") setOutputOpen(true); }}>Check output</button>
             <span className="spacer" />
-            <button type="button" className="small-button" aria-label={props.layout === "results" ? "Restore split layout" : "Maximize results pane"} onClick={() => props.changeLayout(props.layout === "results" ? "split" : "results")}>{props.layout === "results" ? "Restore" : "Maximize"}</button>
-            <button type="button" className="panel-fold" hidden={props.layout === "results"} aria-label={outputOpen ? "Collapse results panel" : "Expand results panel"} aria-expanded={outputOpen} onClick={() => setOutputOpen(!outputOpen)}>{outputOpen ? "⌄" : "⌃"}</button>
+            <button type="button" className="pane-icon" title="Focus results" aria-label={props.layout === "results" ? "Restore split layout" : "Maximize results pane"} onClick={() => props.changeLayout(props.layout === "results" ? "split" : "results")}><PaneIcon name={props.layout === "results" ? "restore" : "expand"} /></button>
+            <button type="button" className="pane-icon" hidden={props.layout === "results"} aria-label={outputOpen ? "Collapse results panel" : "Expand results panel"} aria-expanded={outputOpen} onClick={() => setOutputOpen(!outputOpen)}><span style={{ display: "inline-flex", transform: outputOpen ? "rotate(-90deg)" : "rotate(90deg)" }}><PaneIcon name="collapse" /></span></button>
           </div>
           <section className={`results-panel ${props.layout === "results" ? "maximized" : ""}`} hidden={props.layout === "code" || (!outputOpen && props.layout !== "results")} style={props.layout === "results" ? undefined : { height: resultHeight }} aria-label="Results panel">
             {props.layout !== "results" && outputOpen && <ResizeHandle label="Resize results panel" value={resultHeight} min={90} max={500} horizontal reverse onChange={setResultHeight} />}
             <div id="lesson-cases" role="tabpanel" aria-label="Testcases" className="testcases" hidden={resultTab !== "cases"}>
-              <Testcases ref={casesRef} onState={setPracticeState} reportError={setPracticeError} onResult={setPracticeOutcome} acquire={() => { if (execution.current) return false; execution.current = "practice"; setError(undefined); setPracticeBusy(true); setOutputOpen(true); setResultTab("result"); props.showCode(); if (props.layout === "code" || props.layout === "reading") props.changeLayout("split"); return true; }} release={() => { execution.current = undefined; setPracticeBusy(false); }} track={track} lesson={meta.id} practice={meta.practice} beforeRun={async () => {
+              {!meta.practice ? <p className="small muted">{props.graded ? "This is a written lesson. Submit sends your work to the Coach for grading." : "This exercise uses the supplied test files. Open a test file above to read its cases, then Run to try them without grading. Editable inputs are available on function exercises with samples."}</p> : <Testcases ref={casesRef} onState={setPracticeState} reportError={setPracticeError} onResult={setPracticeOutcome} acquire={() => { if (execution.current) return false; execution.current = "practice"; setError(undefined); setPracticeBusy(true); setOutputOpen(true); setResultTab("result"); props.showCode(); if (props.layout === "code" || props.layout === "reading") props.changeLayout("split"); return true; }} release={() => { execution.current = undefined; setPracticeBusy(false); }} track={track} lesson={meta.id} practice={meta.practice} beforeRun={async () => {
                 await saveAll();
                 if (allFiles.some((f) => f.editable && (!contentsRef.current[f.path] || contentsRef.current[f.path]!.content !== contentsRef.current[f.path]!.saved))) throw new Error("Code changed while saving. Run the case again to use your latest edits.");
                 return JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contentsRef.current[f.path]?.content])]);
-              }} />
+              }} />}
             </div>
             <div id="lesson-practice-result" role="tabpanel" aria-label="Test Result" className="testcases" hidden={resultTab !== "result"}>
-              <PracticeResults outcome={practiceOutcome} busy={practiceBusy} error={practiceError} reason={practiceState.reason} codeVersion={JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contents[f.path]?.content])])} inputVersion={practiceState.inputVersion} files={sourceFiles} onProblem={jumpToProblem} />
+              {!meta.practice ? <>
+                {practiceBusy && <p role="status">Running lesson tests…</p>}
+                {practiceError && <p role="alert" className="error">{practiceError}</p>}
+                {!practiceBusy && !testRun && !practiceError && <p className="muted">Run tries the lesson tests without grading. Submit records a graded attempt.</p>}
+                {testRun && <><p className={testRun.passed ? "ok" : "bad"}>{summarize(testRun)}{testRunRevision !== codeRevision.current ? " (before your latest edits)" : ""}</p><p className="small muted">Practice only. Your progress and submission history have not changed.</p>{testRun.results.map((r, i) => <div className={`result ${r.exitCode === 0 ? "ok" : "bad"}`} key={i}><p className="cmd"><code>{r.command}</code></p><pre>{r.output}</pre></div>)}</>}
+              </> : <PracticeResults outcome={practiceOutcome} busy={practiceBusy} error={practiceError} reason={practiceState.reason} codeVersion={JSON.stringify([codeRevision.current, allFiles.map((f) => [f.path, contents[f.path]?.content])])} inputVersion={practiceState.inputVersion} files={sourceFiles} onProblem={jumpToProblem} />}
             </div>
             <div id="lesson-problems" role="tabpanel" aria-label="Problems" className="problems" hidden={resultTab !== "problems"}>
               {assistanceError && <p className="notice small" role="status">{assistanceError}</p>}
@@ -881,6 +901,13 @@ const Workbench = forwardRef<
               </>}
             </section>
           </section>
+          <footer className="code-actions">
+            {!props.runnerOk && !props.graded && <span className="small muted" role="status">{props.runnerDetail ?? "The code runner is unavailable."}</span>}
+            {(error || practiceError) && <span className="error small" role="alert">{error || practiceError}</span>}
+            {summary && <button type="button" className={`link small ${checks!.passed ? "ok" : "bad"}`} onClick={() => { setResultTab("output"); setOutputOpen(true); }}><StatusIcon status={checks!.passed ? "passed" : "failed"} /> {summary}{checksStale ? " (before edits)" : ""}</button>}
+            <span className="spacer" />
+            <button type="button" className="primary small-button" aria-label={props.graded ? "Submit for grading" : "Submit"} title={`Submit (${RUN_KEY})`} onClick={() => void run()} disabled={running || practiceBusy || (!props.graded && !props.runnerOk)}><PaneIcon name="submit" />{running ? "Submitting…" : props.graded ? "Submit for grading" : "Submit"}</button>
+          </footer>
         </section>
       </div>
     </article>

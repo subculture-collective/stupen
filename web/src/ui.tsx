@@ -121,6 +121,21 @@ export function ConfirmButton(props: {
   );
 }
 
+/** Destructive workspace actions use a modal with Cancel focused first. */
+export function ConfirmDialogButton(props: { label: string; question: string; confirmLabel: string; children: ReactNode; onConfirm: () => void; disabled?: boolean }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  return <>
+    <button type="button" className="pane-icon quiet" aria-label={props.label} title={props.label} disabled={props.disabled} onClick={() => dialog.current?.showModal()}>{props.children}</button>
+    <dialog ref={dialog} className="confirm-dialog" aria-label={props.label}>
+      <h2>{props.label}</h2><p>{props.question}</p>
+      <form method="dialog" className="form-actions">
+        <button autoFocus type="submit">Cancel</button>
+        <button type="submit" className="danger" disabled={props.disabled} onClick={() => { if (!props.disabled) props.onConfirm(); }}>{props.confirmLabel}</button>
+      </form>
+    </dialog>
+  </>;
+}
+
 /** A media query that stays current when the window is resized or a tablet is rotated. */
 export function useMedia(query: string): boolean {
   return useSyncExternalStore(
