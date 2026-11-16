@@ -26,7 +26,7 @@ import { useEffect, useRef } from "react";
 import { documentedCompletion, documentationHover, pythonCompletion, syntaxDiagnostics, wordCompletion } from "./editorAssistance.ts";
 import { typedFile, type CodeProblem, type LanguageService, type SourceFile } from "./languageService.ts";
 
-function language(path: string) {
+export function language(path: string) {
   const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
   if (ext === "json") return json();
   if (ext === "go") return go();

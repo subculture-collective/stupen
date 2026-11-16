@@ -26,7 +26,10 @@ maximize/restore/reset; read-only tests and TypeScript/Go/Python assistance;
 keyboard case editing/selection, Run, Submit, history and editor focus return;
 and empty/loading/invalid/running/pass/mismatch/compiler/runtime/timeout,
 runner-unavailable, failed-save, expired-session and stale-result states.
-Legacy lessons retain canonical Submit, written tasks keep coach grading, and
+Appearance persistence, bundled fonts, floating/collapsed panes, command search,
+confirmation dialogs, outside-click dismissal and Code action placement are covered.
+Lessons without callable metadata keep ungraded ordinary-test Run and canonical Submit.
+Written tasks keep coach grading, and
 container previews remain reachable in an opaque-origin sandboxed iframe.
 
 Browser API responses are isolated fixtures, including grading and preview.

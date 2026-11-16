@@ -59,13 +59,17 @@ as predating the edits.
 
 On desktop, Description and Code scroll independently, with Testcases, Problems and Check output
 below Code. Problem List opens lesson navigation without replacing the description.
-The workspace toolbar keeps Run checks (or written grading) in reach. Coach folds
+Run is at the Code pane’s top right; Submit is at its bottom right. Run tries
+samples or the supplied tests without grading; Submit records an attempt. Coach folds
 without losing its draft or help limit; it starts folded for a new browser.
 The reading pane has Description, Hints and Reference solution tabs. Switching them
 keeps the editor and results in place. Reference solution requires explicit reveal
 confirmation; revisiting its tab or reloading never fetches protected files by itself.
-Visible Maximize/Restore buttons focus Reading, Code or results below the workspace
-toolbar. Layouts selects the same modes. Restore keeps split sizes, folded state,
+Small focus/restore icons expand Problem, Code or results. The top-bar Workspace
+settings menu offers the same layouts, palettes, reading fonts and light/dark modes.
+Ctrl/Cmd+K opens a searchable command and lesson picker. Problem and Coach can
+collapse or float above the editor; floating panes can move and resize. Restore keeps
+split sizes, folded state,
 active tabs and editor state; focus mode itself is temporary. Reset layout restores
 default sizes and folded Coach/results without clearing code or tabs. Stored sizes
 are bounded, and the rendered splits adapt to the viewport.
@@ -88,12 +92,13 @@ Compatible generated TypeScript/JavaScript, Python and Go lessons may include op
 public callable metadata and named sample cases. The generator validates the v1
 contract and only publishes it after canonical reference/starter verification.
 Invalid or incompatible metadata is omitted; existing lessons and checks still load.
-Metadata does not enable practice execution: that requires a matching future runner
-capability. The [case contract](docs/decisions/001-editable-cases.md) defines its bounds.
+Sample execution requires a matching practice runner capability. Without callable
+metadata, Run tries the lesson’s supplied tests without recording graded progress.
+The [case contract](docs/decisions/001-editable-cases.md) defines its bounds.
 
 Testcases shows generated samples and lets you edit their named JSON inputs, reset a
 sample, and add or remove custom cases. Expected output is optional; without it a
-future practice run can show output but cannot report a pass. Field errors explain
+practice run can show output but cannot report a pass. Field errors explain
 invalid JSON or schema mismatches. The panel starts open for compatible lessons and
 scrolls at smaller heights; its labelled resize control also works with the keyboard.
 

@@ -221,6 +221,7 @@ export const api = {
   readFile: (track: string, lesson: string, path: string) => call<{ content: string }>(`${l(track, lesson)}/file?path=${q(path)}`),
   writeFile: (track: string, lesson: string, path: string, content: string) => call<{ ok: true }>(`${l(track, lesson)}/file`, json("PUT", { path, content })),
   starter: (track: string, lesson: string, path: string) => call<{ content: string }>(`${l(track, lesson)}/starter?path=${q(path)}`),
+  tryChecks: (track: string, lesson: string) => call<{ checks: Checks }>(`${l(track, lesson)}/try-checks`, { method: "POST" }),
   check: (track: string, lesson: string) => call<{ checks: Checks; meta: LessonMeta; firstPass: boolean }>(`${l(track, lesson)}/check`, { method: "POST" }),
   preview: (track: string, lesson: string) => call<{ html?: string; result: CheckResult }>(`${l(track, lesson)}/preview`, { method: "POST" }),
   newFile: (track: string, lesson: string, path: string, content = "") => call<{ ok: true }>(`${l(track, lesson)}/files`, json("POST", { path, content })),

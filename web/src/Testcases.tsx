@@ -33,7 +33,7 @@ export const Testcases = forwardRef<TestcasesHandle, { track: string; lesson: st
   useImperativeHandle(ref, () => ({ run: () => executeRef.current?.() }));
   useEffect(() => {
     const valid = draft && practice && parseCaseDrafts(draft, practice).cases;
-    const reason = !practice ? "Run needs compatible generated case metadata. Submit still uses the original checks." : !draft ? "Loading practice inputs…" : !valid ? "Fix invalid case inputs before Run. Submit still uses the original checks." : !capability?.enabled ? capability?.reason ?? "Checking practice runner…" : "";
+    const reason = !practice ? "This exercise uses its supplied tests. Run tries them without grading; Submit records an attempt." : !draft ? "Loading practice inputs…" : !valid ? "Fix invalid case inputs before Run. Submit still uses the original checks." : !capability?.enabled ? capability?.reason ?? "Checking practice runner…" : "";
     onState({ enabled: Boolean(valid && capability?.enabled), reason, inputVersion: JSON.stringify(valid || draft?.cases || []) });
   }, [draft, practice, capability, onState]);
   const metadata = JSON.stringify(practice);
@@ -53,7 +53,7 @@ export const Testcases = forwardRef<TestcasesHandle, { track: string; lesson: st
   }, [track, lesson, metadata, reload]);
 
   executeRef.current = undefined;
-  if (!practice) return <p className="small muted">Editable cases need compatible generated sample metadata. This lesson keeps its ordinary checks or coach grading.</p>;
+  if (!practice) return <p className="small muted">This exercise uses its supplied test files. Editable inputs are available on function exercises with samples.</p>;
   if (!draft) return <div role="status">{loadingError ? <><p className="error">{loadingError}</p><button type="button" onClick={() => setReload(reload + 1)}>Retry loading cases</button></> : "Loading cases…"}</div>;
 
   // Drain edits in order, coalescing changes made during an in-flight save. The queue
